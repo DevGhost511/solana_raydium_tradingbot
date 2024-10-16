@@ -31,7 +31,9 @@ use crate::config::settings;
 use crate::config::settings::Mode;
 use crate::engine::Engine;
 use crate::types::actions::SolanaAction;
+use crate::types::engine::StrategyManager;
 use crate::types::events::BotEvent;
+use crate::types::sniping_strategy::{NewSnipingStrategyInstance, SnipingStrategyInstance};
 use ::solana_sdk::commitment_config::CommitmentConfig;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as DecodeEngine};
@@ -51,9 +53,6 @@ use tracing::log::trace;
 use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{filter, prelude::*};
 use types::events::BlockchainEvent;
-use crate::types::engine::StrategyManager;
-use crate::types::sniping_strategy::{NewSnipingStrategyInstance, SnipingStrategyInstance};
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -67,9 +66,10 @@ async fn main() -> Result<()> {
     /// Initialize engine with message handlers.
 
     info!("Initializing engine..");
-    let mut engine: Engine<BotEvent, Arc<Mutex<SolanaAction>>> = Engine::new(solana_strat_manager.clone())
-        .with_event_channel_capacity(ENGINE_MESSAGE_CHANNEL_CAPACITY)
-        .with_action_channel_capacity(ENGINE_MESSAGE_CHANNEL_CAPACITY);
+    let mut engine: Engine<BotEvent, Arc<Mutex<SolanaAction>>> =
+        Engine::new(solana_strat_manager.clone())
+            .with_event_channel_capacity(ENGINE_MESSAGE_CHANNEL_CAPACITY)
+            .with_action_channel_capacity(ENGINE_MESSAGE_CHANNEL_CAPACITY);
 
     /// adding raydium pool collector getting new pools and prices
     let raydium_pool_collector =
@@ -77,7 +77,8 @@ async fn main() -> Result<()> {
     engine.add_collector(Box::new(raydium_pool_collector));
 
     let pool_events_collector =
-        collectors::realtime_feed_events_collector::RealtimeFeedEventsCollector::new(&context).await?;
+        collectors::realtime_feed_events_collector::RealtimeFeedEventsCollector::new(&context)
+            .await?;
     engine.add_collector(Box::new(pool_events_collector));
     /// adding ticks (default is 1s, configured in the settings)
     let tick_collector = collectors::heartbeat_collector::HeartbeatCollector::new(&context).await;
@@ -113,22 +114,32 @@ async fn main() -> Result<()> {
     }
 
     if context.tg_bot.is_some() {
-        context.start_telegram_bot(solana_strat_manager.clone()).await;
+        context
+            .start_telegram_bot(solana_strat_manager.clone())
+            .await;
     }
 
     /// Add startup strategies here
     if let Some(sniping_strategy_config) = settings.get_sniping_strategy_config() {
         info!("Starting sniper strategy: {:?}", sniping_strategy_config);
         let sniping_strategy_instance = storage::persistent::save_new_sniping_strategy_to_db(
-            context.db_pool.clone(), NewSnipingStrategyInstance::try_from(&sniping_strategy_config).unwrap(),
-        ).await?;
-        let sniping_strategy = strategies::sniper_strategy::SniperStrategy::new(&context, &sniping_strategy_instance).await?;
-        solana_strat_manager.start_strategy(Box::new(sniping_strategy)).await;
+            context.db_pool.clone(),
+            NewSnipingStrategyInstance::try_from(&sniping_strategy_config).unwrap(),
+        )
+        .await?;
+        let sniping_strategy =
+            strategies::sniper_strategy::SniperStrategy::new(&context, &sniping_strategy_instance)
+                .await?;
+        solana_strat_manager
+            .start_strategy(Box::new(sniping_strategy))
+            .await;
     }
 
-    solana_strat_manager.start_strategy(Box::new(
-        strategies::LoggerInterceptorStrategy::new(&context),
-    )).await;
+    solana_strat_manager
+        .start_strategy(Box::new(strategies::LoggerInterceptorStrategy::new(
+            &context,
+        )))
+        .await;
     /// Start engine.
     info!("Engine started");
     if let Ok(mut set) = engine.run().await {

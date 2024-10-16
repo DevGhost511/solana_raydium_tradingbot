@@ -1,12 +1,11 @@
-use serde_derive::{Deserialize, Serialize};
-use solana_farm_client::raydium_sdk::{LiquidityPoolKeys, MarketStateLayoutV3};
-use solana_sdk::pubkey::Pubkey;
 use crate::types::actions::Amount;
 use crate::types::keys::KeypairClonable;
 use crate::types::pool::RaydiumPool;
+use serde_derive::{Deserialize, Serialize};
+use solana_farm_client::raydium_sdk::{LiquidityPoolKeys, MarketStateLayoutV3};
+use solana_sdk::pubkey::Pubkey;
 
-
-#[derive(Debug, Clone, Copy,Default,  Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SwapMethod {
     #[default]
     BuyTokensForExactSol,

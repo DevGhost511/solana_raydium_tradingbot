@@ -1,6 +1,6 @@
-use std::fmt::Debug;
 use crate::types::sniping_strategy::{NewSnipingStrategyInstance, SnipingStrategyInstance};
 use solana_sdk::pubkey::Pubkey;
+use std::fmt::Debug;
 use std::str::FromStr;
 
 pub trait UpdateConfig {
@@ -20,27 +20,38 @@ pub struct SnipingStrategyConfigArgs {
     pub skip_mintable: Option<bool>,
     pub buy_delay_ms: Option<i64>,
     pub skip_if_price_drops_percent: Option<f64>,
-
 }
 
 impl Debug for SnipingStrategyConfigArgs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SnipingStrategyConfigArgs")
             .field("user_id", &self.user_id)
-            .field("sniper_privkey", match &self.sniper_privkey {
-                Some(_) => &"Some(<hidden>)",
-                None => &"None",
-            })
+            .field(
+                "sniper_privkey",
+                match &self.sniper_privkey {
+                    Some(_) => &"Some(<hidden>)",
+                    None => &"None",
+                },
+            )
             .field("size_sol", &self.size_sol)
-            .field("stop_loss_percent_move_down", &self.stop_loss_percent_move_down)
-            .field("take_profit_percent_move_up", &self.take_profit_percent_move_up)
+            .field(
+                "stop_loss_percent_move_down",
+                &self.stop_loss_percent_move_down,
+            )
+            .field(
+                "take_profit_percent_move_up",
+                &self.take_profit_percent_move_up,
+            )
             .field("force_exit_horizon_s", &self.force_exit_horizon_s)
             .field("max_simultaneous_snipes", &self.max_simultaneous_snipes)
             .field("min_pool_liquidity_sol", &self.min_pool_liquidity_sol)
             .field("skip_pump_fun", &self.skip_pump_fun)
             .field("skip_mintable", &self.skip_mintable)
             .field("buy_delay_ms", &self.buy_delay_ms)
-            .field("skip_if_price_drops_percent", &self.skip_if_price_drops_percent)
+            .field(
+                "skip_if_price_drops_percent",
+                &self.skip_if_price_drops_percent,
+            )
             .finish()
     }
 }
@@ -82,7 +93,10 @@ impl TryFrom<&SnipingStrategyConfigArgs> for NewSnipingStrategyInstance {
             user_id: value.user_id.ok_or("user_id is None")?,
             started_at: chrono::Utc::now().naive_utc(),
             completed_at: None,
-            sniper_private_key: value.sniper_privkey.clone().ok_or("sniper_privkey is None")?,
+            sniper_private_key: value
+                .sniper_privkey
+                .clone()
+                .ok_or("sniper_privkey is None")?,
             size_sol: value.size_sol.ok_or("size_sol is None")?,
             stop_loss_percent_move_down: value
                 .stop_loss_percent_move_down
@@ -94,7 +108,9 @@ impl TryFrom<&SnipingStrategyConfigArgs> for NewSnipingStrategyInstance {
                 .force_exit_horizon_s
                 .ok_or("force_exit_horizon_s is None")?,
             max_simultaneous_snipes: value.max_simultaneous_snipes.unwrap_or(1),
-            min_pool_liquidity_sol: value.min_pool_liquidity_sol.ok_or("min_pool_liquidity_sol is None")?,
+            min_pool_liquidity_sol: value
+                .min_pool_liquidity_sol
+                .ok_or("min_pool_liquidity_sol is None")?,
             skip_pump_fun: value.skip_pump_fun.unwrap_or(false),
             skip_mintable: value.skip_mintable.unwrap_or(false),
             buy_delay_ms: value.buy_delay_ms.unwrap_or(0),

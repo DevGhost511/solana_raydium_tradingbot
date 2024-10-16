@@ -1,13 +1,14 @@
+use crate::config::constants::{BASE_TX_FEE_SOL, TRANSFER_PRIORITY_FEE_SOL};
 use crate::strategies::VolumeStrategy;
 use crate::tg_bot::bot_config::{BotConfig, HandlerResult};
 use crate::tg_bot::helpers::get_user_from_button_press;
 use crate::tg_bot::notifications::{notify_user, notify_with_fading_message, TimeToShow};
 use crate::tg_bot::state::{DialogueMessages, MyDialogue};
-use crate::tg_bot::volume_strategy_config_args::VolumeStrategyConfigArgs;
 use crate::tg_bot::user_menu::strategies;
 use crate::tg_bot::user_menu::strategies::{buttons, screen};
 use crate::tg_bot::user_menu::top;
 use crate::tg_bot::user_menu::top::handler::BUTTON_BACK_TO_THE_MAIN_MENU;
+use crate::tg_bot::volume_strategy_config_args::VolumeStrategyConfigArgs;
 use crate::types::volume_strategy::VolumeStrategyInstance;
 use crate::utils::decimals::lamports_to_sol;
 use crate::utils::formatters::format_sol;
@@ -20,7 +21,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use teloxide::prelude::{CallbackQuery, ChatId, Message, Requester};
 use teloxide::Bot;
-use crate::config::constants::{BASE_TX_FEE_SOL, TRANSFER_PRIORITY_FEE_SOL};
 
 pub async fn select_strategy_handler(
     bot: Bot,
@@ -36,7 +36,7 @@ pub async fn select_strategy_handler(
             if let Some(button) = q.data {
                 match button.as_str() {
                     buttons::BUTTON_INFO => {
-                        notify_with_fading_message(&bot, chat_id.0, 
+                        notify_with_fading_message(&bot, chat_id.0 ,
                                                    "This strategy is designed to trade a specific token pair on Raydium\\. \
                                                    It will create buyers and sellers that buy and sell the token in bundles, with a specified frequency\\.",
                                                     TimeToShow::Moderate);
@@ -122,7 +122,8 @@ pub async fn select_strategy_handler(
                             .read()
                             .await
                             .tgbot
-                            .as_ref().unwrap()
+                            .as_ref()
+                            .unwrap()
                             .minimum_deposit_sol
                             .max(strategy_tranche_size);
                         let user_sol_balance = config
@@ -154,7 +155,8 @@ pub async fn select_strategy_handler(
                                     .unwrap_or(1),
                             );
                         let minimum_sol_needed =
-                            lamports_to_sol(BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL) * agents as f64;
+                            lamports_to_sol(BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL)
+                                * agents as f64;
                         if strategy_tranche_size < minimum_sol_needed {
                             notify_user(&bot, chat_id.0, &format!("The tranche size must be greater than or equal to `{}` to cover swap fees per each trader", format_sol(minimum_sol_needed))).await;
                             return Ok(());
@@ -172,14 +174,20 @@ pub async fn select_strategy_handler(
                             }
                         };
                         let strategy =
-                            match VolumeStrategy::new(&config.context.clone(), &volume_strategy).await {
+                            match VolumeStrategy::new(&config.context.clone(), &volume_strategy)
+                                .await
+                            {
                                 Ok(strategy) => strategy,
                                 Err(e) => {
-                                    bot.send_message(chat_id, &format!("Failed to create a strategy: {:?}", e)).await;
+                                    bot.send_message(
+                                        chat_id,
+                                        &format!("Failed to create a strategy: {:?}", e),
+                                    )
+                                    .await;
                                     return Ok(());
                                 }
                             };
-                            
+
                         match config
                             .strategy_manager
                             .start_strategy(Box::new(strategy))
@@ -203,7 +211,11 @@ pub async fn select_strategy_handler(
                                 .await?;
                             }
                             Err(e) => {
-                                bot.send_message(chat_id, &format!("Failed to start a strategy: {:?}", e)).await;
+                                bot.send_message(
+                                    chat_id,
+                                    &format!("Failed to start a strategy: {:?}", e),
+                                )
+                                .await;
                             }
                         }
                     }

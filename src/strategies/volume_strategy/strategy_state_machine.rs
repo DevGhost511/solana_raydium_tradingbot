@@ -1,17 +1,25 @@
-use std::fmt::{Debug, Formatter};
 use crate::config::app_context::AppContext;
-use crate::config::constants::{BASE_TX_FEE_SOL, MAX_TRANSFERS_IN_ONE_TX, NEW_ACCOUNT_THRESHOLD_SOL, RAYDIUM_SWAP_FEE, RENT_EXEMPTION_THRESHOLD_SOL, TRANSFER_PRIORITY_FEE_SOL};
+use crate::config::constants::{
+    BASE_TX_FEE_SOL, MAX_TRANSFERS_IN_ONE_TX, NEW_ACCOUNT_THRESHOLD_SOL, RAYDIUM_SWAP_FEE,
+    RENT_EXEMPTION_THRESHOLD_SOL, TRANSFER_PRIORITY_FEE_SOL,
+};
 use crate::schema::traders::dsl::traders;
 use crate::schema::traders::strategy_instance_id;
 use crate::schema::users::dsl::users;
 use crate::schema::users::{chat_id, id};
-use crate::types::actions::{Amount, Asset, SolanaAction, SolanaActionPayload, SolanaTransferActionPayload};
+use crate::strategies::events::{AgentEvent, SolanaStrategyEvent};
+use crate::strategies::volume_strategy::agent::{self, AgentState};
+use crate::types::actions::{
+    Amount, Asset, SolanaAction, SolanaActionPayload, SolanaTransferActionPayload,
+};
+use crate::types::bot_user::{BotUser, Trader};
 use crate::types::events::BotEvent::HeartBeat;
 use crate::types::events::{BotEvent, TickSizeMs};
 use crate::types::keys::KeypairClonable;
 use crate::types::pool::RaydiumPool;
-use crate::types::bot_user::{BotUser, Trader};
 use crate::types::volume_strategy::VolumeStrategyInstance;
+use crate::utils::math;
+use crate::utils::Stopwatch;
 use crate::{solana, utils};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -24,15 +32,12 @@ use log::{debug, error};
 use solana_sdk::pubkey::Pubkey;
 use spl_associated_token_account::get_associated_token_address;
 use statig::awaitable::{prelude::*, StateMachine};
+use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex as StdMutex};
 use teloxide::prelude::{ChatId, Requester};
 use tokio::sync::{Mutex as TokioMutex, Mutex};
 use tokio::time::sleep;
 use tracing::{info, trace, warn};
-use crate::strategies::volume_strategy::agent::{self, AgentState};
-use crate::strategies::events::{AgentEvent, SolanaStrategyEvent};
-use crate::utils::Stopwatch;
-use crate::utils::math;
 
 /// The state of the volume strategy
 /// States:
@@ -146,8 +151,8 @@ impl VolumeStrategyStateMachine {
                 strat_actions_generated_from_event.clone(),
                 None,
             )
-                .await?
-                .state_machine(),
+            .await?
+            .state_machine(),
         ));
         let main_wallet_clone = main_wallet.clone();
         let mut strategy = VolumeStrategyStateMachine {
@@ -159,10 +164,12 @@ impl VolumeStrategyStateMachine {
             pool,
             stopwatch,
         };
-        info!("Strategy {} created with instance {:?}", instance.id, instance);
+        info!(
+            "Strategy {} created with instance {:?}",
+            instance.id, instance
+        );
         Ok(strategy)
     }
-
 
     #[action]
     async fn collect_everything_from_staled_agents(&mut self) {
@@ -177,40 +184,54 @@ impl VolumeStrategyStateMachine {
             .filter(crate::schema::traders::wallet.ne(&main_wallet.pubkey().to_string()))
             .select(crate::schema::traders::all_columns)
             .load::<Trader>(&mut conn)
-            .await {
+            .await
+        {
             debug!("{} strategy traders loaded", strat_traders.len());
-            let agents_w_balance: Vec<Arc<Mutex<StateMachine<AgentState>>>> = stream::iter(strat_traders.into_iter())
-                .map(|trader| {
-                    let parent_strat = self.clone();
-                    let main_wallet_clone = main_wallet.clone();
-                    async move {
-                        trace!("Creating agent from trader {:?}", trader);
-                        let trader_sol_balance_res = solana::get_balance(&parent_strat.context, &trader.wallet).await;
-                        let trader_token_balance = solana::get_token_balance(&parent_strat.context, &trader.wallet, &parent_strat.pool.base_mint).await.unwrap_or(0);
-                        if let Ok(trader_sol_balance) = trader_sol_balance_res {
-                            if trader_sol_balance < NEW_ACCOUNT_THRESHOLD_SOL && trader_token_balance < (parent_strat.instance.agents_keep_tokens_lamports as u64) {
-                                None
-                            } else {
-                                AgentState::new_from_trader(
-                                    &parent_strat.context,
-                                    parent_strat.pool.clone(),
-                                    trader.clone(),
-                                    parent_strat.strat_actions_generated_from_event.clone(),
-                                    Some(main_wallet_clone),
-                                )
+            let agents_w_balance: Vec<Arc<Mutex<StateMachine<AgentState>>>> =
+                stream::iter(strat_traders.into_iter())
+                    .map(|trader| {
+                        let parent_strat = self.clone();
+                        let main_wallet_clone = main_wallet.clone();
+                        async move {
+                            trace!("Creating agent from trader {:?}", trader);
+                            let trader_sol_balance_res =
+                                solana::get_balance(&parent_strat.context, &trader.wallet).await;
+                            let trader_token_balance = solana::get_token_balance(
+                                &parent_strat.context,
+                                &trader.wallet,
+                                &parent_strat.pool.base_mint,
+                            )
+                            .await
+                            .unwrap_or(0);
+                            if let Ok(trader_sol_balance) = trader_sol_balance_res {
+                                if trader_sol_balance < NEW_ACCOUNT_THRESHOLD_SOL
+                                    && trader_token_balance
+                                        < (parent_strat.instance.agents_keep_tokens_lamports as u64)
+                                {
+                                    None
+                                } else {
+                                    AgentState::new_from_trader(
+                                        &parent_strat.context,
+                                        parent_strat.pool.clone(),
+                                        trader.clone(),
+                                        parent_strat.strat_actions_generated_from_event.clone(),
+                                        Some(main_wallet_clone),
+                                    )
                                     .await
                                     .ok()
-                                    .map(|agent_state| Arc::new(Mutex::new(agent_state.state_machine())))
+                                    .map(|agent_state| {
+                                        Arc::new(Mutex::new(agent_state.state_machine()))
+                                    })
+                                }
+                            } else {
+                                None
                             }
-                        } else {
-                            None
                         }
-                    }
-                })
-                .buffer_unordered(10)
-                .filter_map(|result| async move { result })
-                .collect()
-                .await;
+                    })
+                    .buffer_unordered(10)
+                    .filter_map(|result| async move { result })
+                    .collect()
+                    .await;
 
             self.agents = agents_w_balance;
 
@@ -227,7 +248,9 @@ impl VolumeStrategyStateMachine {
         let receiver = self.main_wallet.lock().await.pubkey();
         for agent in self.agents.iter_mut() {
             let mut agent = agent.lock().await;
-            agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Collect)).await;
+            agent
+                .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Collect))
+                .await;
         }
         debug!(
             "EXIT collect_everything_from_staled_agents: Main wallet state: {:?}, Agents state: {:?}",
@@ -247,12 +270,18 @@ impl VolumeStrategyStateMachine {
             join_all(self.agents.iter().map(|agent| async {
                 let locked_agent = agent.lock().await;
                 locked_agent.state().clone()
-            })).await
+            }))
+            .await
         );
         for agent in &self.agents {
             let agent_pubkey = agent.lock().await.pubkey();
             solana::stop_monitoring_account(&self.context, &agent_pubkey).await;
-            solana::stop_monitoring_token_account(&self.context, &agent_pubkey, &self.pool.base_mint).await;
+            solana::stop_monitoring_token_account(
+                &self.context,
+                &agent_pubkey,
+                &self.pool.base_mint,
+            )
+            .await;
         }
         self.agents.clear();
         debug!(
@@ -268,11 +297,12 @@ impl VolumeStrategyStateMachine {
     )]
     async fn sweeping(&mut self, event: &SolanaStrategyEvent) -> Response<State> {
         match self.get_execution_status().await {
-            ExecutionStatus::Done | ExecutionStatus::Error => Transition(State::offloading_inventory()),
+            ExecutionStatus::Done | ExecutionStatus::Error => {
+                Transition(State::offloading_inventory())
+            }
             _ => Super,
         }
     }
-
 
     #[action]
     async fn offload_inventory(&mut self) {
@@ -284,25 +314,31 @@ impl VolumeStrategyStateMachine {
         let token_balance = agent.get_token_balance().await;
         let sol_balance = agent.get_sol_balance().await;
         if token_balance > 0 && sol_balance >= BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL {
-            agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Sell(Amount::Max))).await;
+            agent
+                .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Sell(
+                    Amount::Max,
+                )))
+                .await;
         } else {
             let msg = format!("Main wallet {:?} has insufficient token {token_balance} or SOL balance {sol_balance} to sell", agent.pubkey());
             warn!("{msg}")
         }
         debug!(
             "EXIT offload_inventory Main wallet state: {:?}",
-           agent.state()
+            agent.state()
         );
     }
 
     #[state(superstate = "running", entry_action = "offload_inventory")]
     async fn offloading_inventory(&mut self, event: &SolanaStrategyEvent) -> Response<State> {
         match self.main_wallet.lock().await.state() {
-            agent::State::Success { .. } | agent::State::Error { .. } | agent::State::Deactivated {} | agent::State::Idle {} => Transition(State::fund()),
-            _ => Super
+            agent::State::Success { .. }
+            | agent::State::Error { .. }
+            | agent::State::Deactivated {}
+            | agent::State::Idle {} => Transition(State::fund()),
+            _ => Super,
         }
     }
-
 
     // gets the number of agents needed to buy and sends SOL to them from the master wallet
     // spending: tranche_size_sol + transfer fees
@@ -335,8 +371,8 @@ impl VolumeStrategyStateMachine {
                 }
             },
         )
-            .iter()
-            .enumerate()
+        .iter()
+        .enumerate()
         {
             if let Ok(agent) = AgentState::new(
                 &self.context,
@@ -345,19 +381,19 @@ impl VolumeStrategyStateMachine {
                 Some(self.instance.id),
                 self.strat_actions_generated_from_event.clone(),
                 Some(self.main_wallet.lock().await.agent_key.clone()),
-            ).await {
+            )
+            .await
+            {
                 let pk = agent.pubkey();
                 let agent_sm = Arc::new(Mutex::new(agent.state_machine()));
                 self.agents.push(agent_sm.clone());
-                transfer_vec.push(
-                    SolanaActionPayload::SolanaTransferActionPayload(
-                        SolanaTransferActionPayload {
-                            asset: Asset::Sol,
-                            receiver: pk,
-                            amount: Amount::ExactWithFees(*amount),
-                        },
-                    ),
-                );
+                transfer_vec.push(SolanaActionPayload::SolanaTransferActionPayload(
+                    SolanaTransferActionPayload {
+                        asset: Asset::Sol,
+                        receiver: pk,
+                        amount: Amount::ExactWithFees(*amount),
+                    },
+                ));
             }
         }
 
@@ -370,22 +406,23 @@ impl VolumeStrategyStateMachine {
             self.main_wallet
                 .lock()
                 .await
-                .handle(&SolanaStrategyEvent::ForAgent(
-                    AgentEvent::Transfer(
-                        batch.iter().filter_map(
-                            |action| {
-                                if let SolanaActionPayload::SolanaTransferActionPayload(action) = action {
-                                    Some(SolanaTransferActionPayload {
-                                        asset: action.asset.clone(),
-                                        receiver: action.receiver.clone(),
-                                        amount: action.amount.clone(),
-                                    })
-                                } else {
-                                    None
-                                }
-                            },
-                        ).collect()),
-                ))
+                .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Transfer(
+                    batch
+                        .iter()
+                        .filter_map(|action| {
+                            if let SolanaActionPayload::SolanaTransferActionPayload(action) = action
+                            {
+                                Some(SolanaTransferActionPayload {
+                                    asset: action.asset.clone(),
+                                    receiver: action.receiver.clone(),
+                                    amount: action.amount.clone(),
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                )))
                 .await;
         }
         debug!("Strategy {} : initialize_agents_with_sol: created agents: {:?}, sending {:?}, main wallet state: {:?}", self.instance.id, self.agents.len(), transfer_vec,   self.main_wallet.lock().await.state());
@@ -409,14 +446,20 @@ impl VolumeStrategyStateMachine {
             join_all(self.agents.iter().map(|agent| async {
                 let locked_agent = agent.lock().await;
                 locked_agent.state().clone()
-            })).await
+            }))
+            .await
         );
         let instance = &self.instance;
-        let swap_tasks: Vec<_> = self.agents
+        let swap_tasks: Vec<_> = self
+            .agents
             .iter()
             .map(|agent_mutex| async {
                 let mut agent = agent_mutex.lock().await;
-                agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Buy(Amount::MaxButLeaveForTransfer))).await;
+                agent
+                    .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Buy(
+                        Amount::MaxButLeaveForTransfer,
+                    )))
+                    .await;
             })
             .collect();
 
@@ -444,7 +487,7 @@ impl VolumeStrategyStateMachine {
         let tokens_to_keep = instance.agents_keep_tokens_lamports as u64;
         let minimum_sol = match tokens_to_keep {
             0 => BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL,
-            _ => RENT_EXEMPTION_THRESHOLD_SOL + BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL
+            _ => RENT_EXEMPTION_THRESHOLD_SOL + BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL,
         };
         let main_wallet_pubkey = self.main_wallet.lock().await.pubkey();
         let transfer_tasks: Vec<_> = self.agents
@@ -508,7 +551,8 @@ impl VolumeStrategyStateMachine {
             self.instance.agents_selling_in_tranche, token_balance
         );
         let self_clone = &self.clone();
-        self.create_agents(self.instance.agents_selling_in_tranche).await;
+        self.create_agents(self.instance.agents_selling_in_tranche)
+            .await;
 
         // Calculate the amount of tokens to be transferred to each seller agent
         let amounts_vector = math::get_dirichlet_distributed_amount(
@@ -521,11 +565,16 @@ impl VolumeStrategyStateMachine {
         let mut transfer_vec: Vec<SolanaTransferActionPayload> = vec![];
         for (i, amount) in amounts_vector.iter().enumerate() {
             let agent = self.agents[i].lock().await;
-            if !matches!(agent.state(), agent::State::Error { .. }  | agent::State::Deactivated {}) {
+            if !matches!(
+                agent.state(),
+                agent::State::Error { .. } | agent::State::Deactivated {}
+            ) {
                 transfer_vec.push(SolanaTransferActionPayload {
                     asset: Asset::Sol,
                     receiver: agent.pubkey(),
-                    amount: Amount::Exact(BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL + RENT_EXEMPTION_THRESHOLD_SOL),
+                    amount: Amount::Exact(
+                        BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL + RENT_EXEMPTION_THRESHOLD_SOL,
+                    ),
                 });
                 transfer_vec.push(SolanaTransferActionPayload {
                     asset: Asset::Token(self.pool.base_mint),
@@ -559,15 +608,17 @@ impl VolumeStrategyStateMachine {
     }
 
     // once transferred drop buying agents and update db status
-    #[state(
-        superstate = "running",
-        entry_action = "transfer_token_to_sellers"
-    )]
-    async fn transferring_token_to_sellers(&mut self, event: &SolanaStrategyEvent) -> Response<State> {
+    #[state(superstate = "running", entry_action = "transfer_token_to_sellers")]
+    async fn transferring_token_to_sellers(
+        &mut self,
+        event: &SolanaStrategyEvent,
+    ) -> Response<State> {
         match self.main_wallet.lock().await.state() {
             agent::State::Success { .. } | agent::State::Idle {} => Transition(State::selling()),
-            agent::State::Error { .. } | agent::State::Deactivated {} => Transition(State::offloading_inventory()),
-            _ => Super
+            agent::State::Error { .. } | agent::State::Deactivated {} => {
+                Transition(State::offloading_inventory())
+            }
+            _ => Super,
         }
     }
 
@@ -577,27 +628,39 @@ impl VolumeStrategyStateMachine {
             "ENTER SELL Main wallet state: {:?}",
             self.main_wallet.lock().await.state()
         );
-        let sell_tasks: Vec<_> = self.agents
+        let sell_tasks: Vec<_> = self
+            .agents
             .iter()
             .map(|agent_mutex| async {
                 let mut agent = agent_mutex.lock().await;
                 if self.instance.agents_keep_tokens_lamports == 0 {
                     let token_balance = agent.get_token_balance().await;
                     if token_balance > 0 {
-                        agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Collect)).await;
+                        agent
+                            .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Collect))
+                            .await;
                     }
                 } else {
                     let token_balance = agent.get_token_balance().await;
                     let sol_balance = agent.get_sol_balance().await;
                     if sol_balance >= BASE_TX_FEE_SOL + TRANSFER_PRIORITY_FEE_SOL {
-                        let balance_to_sell: u64 = token_balance - self.instance.agents_keep_tokens_lamports as u64;
-                        agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Sell(Amount::Exact(balance_to_sell)))).await;
+                        let balance_to_sell: u64 =
+                            token_balance - self.instance.agents_keep_tokens_lamports as u64;
+                        agent
+                            .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Sell(
+                                Amount::Exact(balance_to_sell),
+                            )))
+                            .await;
                     } else {
-                        let msg = format!("Agent {:?} has insufficient SOL balance {sol_balance} to sell", agent.pubkey());
+                        let msg = format!(
+                            "Agent {:?} has insufficient SOL balance {sol_balance} to sell",
+                            agent.pubkey()
+                        );
                         error!("{msg}")
                     }
                 }
-            }).collect();
+            })
+            .collect();
         futures::future::join_all(sell_tasks).await;
     }
 
@@ -615,7 +678,8 @@ impl VolumeStrategyStateMachine {
     async fn collect_sol_from_agents(&mut self) {
         let instance = &self.instance;
         let main_wallet_pubkey = self.main_wallet.lock().await.pubkey();
-        let transfer_tasks: Vec<_> = self.agents
+        let transfer_tasks: Vec<_> = self
+            .agents
             .iter()
             .map(|agent_mutex| async {
                 let mut agent = agent_mutex.lock().await;
@@ -629,7 +693,9 @@ impl VolumeStrategyStateMachine {
                 //     }
                 // ]))).await;
 
-                agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Collect)).await;
+                agent
+                    .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Collect))
+                    .await;
             })
             .collect();
 
@@ -709,8 +775,10 @@ impl VolumeStrategyStateMachine {
             .await
             .map_err(anyhow::Error::new)
             .unwrap();
-        self.context.tg_bot
-            .as_ref().unwrap()
+        self.context
+            .tg_bot
+            .as_ref()
+            .unwrap()
             .send_message(ChatId(user.chat_id), error_text)
             .await;
     }
@@ -726,11 +794,17 @@ impl VolumeStrategyStateMachine {
     }
 
     fn on_transition(&mut self, source: &State, target: &State) {
-        info!("Strategy {} transitioned from `{source:?}` to `{target:?}`", self.instance.id);
+        info!(
+            "Strategy {} transitioned from `{source:?}` to `{target:?}`",
+            self.instance.id
+        );
     }
 
     fn on_dispatch(&mut self, state: StateOrSuperstate<Self>, event: &SolanaStrategyEvent) {
-        trace!("Strategy {} dispatching `{event:?}` to `{state:?}`",self.instance.id);
+        trace!(
+            "Strategy {} dispatching `{event:?}` to `{state:?}`",
+            self.instance.id
+        );
         match state {
             StateOrSuperstate::State(_) => {
                 let mut main_wallet = self.main_wallet.clone();
@@ -760,10 +834,16 @@ impl VolumeStrategyStateMachine {
         for (i, agent) in self.agents.iter().enumerate() {
             let agent = agent.lock().await;
             match agent.state() {
-                agent::State::Success { .. } => { agents_with_success += 1; }
-                agent::State::Error { .. } | agent::State::Deactivating { .. } | agent::State::Deactivated {} => { agents_with_error += 1; }
+                agent::State::Success { .. } => {
+                    agents_with_success += 1;
+                }
+                agent::State::Error { .. }
+                | agent::State::Deactivating { .. }
+                | agent::State::Deactivated {} => {
+                    agents_with_error += 1;
+                }
                 // retruning early if at least one agent is still pending
-                _ => return ExecutionStatus::Pending
+                _ => return ExecutionStatus::Pending,
             }
         }
         if agents_with_success == self.agents.len() {
@@ -786,9 +866,9 @@ impl VolumeStrategyStateMachine {
                         parent_strategy.strat_actions_generated_from_event.clone(),
                         Some(parent_strategy.main_wallet.lock().await.agent_key.clone()),
                     )
-                        .await
-                        .ok()
-                        .map(|agent_state| Arc::new(Mutex::new(agent_state.state_machine())))
+                    .await
+                    .ok()
+                    .map(|agent_state| Arc::new(Mutex::new(agent_state.state_machine())))
                 }
             })
             .buffer_unordered(10)
@@ -802,7 +882,9 @@ impl VolumeStrategyStateMachine {
     pub async fn drop(&mut self) {
         let deactivate_futures = self.agents.iter_mut().map(|agent| async {
             let mut agent = agent.lock().await;
-            agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Deactivate)).await
+            agent
+                .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Deactivate))
+                .await
         });
         join_all(deactivate_futures).await;
 

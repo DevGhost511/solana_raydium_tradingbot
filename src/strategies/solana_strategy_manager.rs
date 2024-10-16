@@ -1,32 +1,32 @@
+use crate::config::app_context::AppContext;
+use crate::config::constants::NEW_STRATEGY_POLLING_FREQUENCY_MS;
+use crate::schema::users::dsl::users;
+use crate::schema::users::is_active;
+use crate::schema::volumestrategyinstances;
+use crate::strategies::sniper_strategy::SniperStrategy;
+use crate::strategies::sweeper_strategy::SweeperStrategy;
+use crate::strategies::{DepositWithdrawStrategy, VolumeStrategy};
+use crate::types::actions::SolanaAction;
+use crate::types::bot_user::BotUser;
+use crate::types::engine::{Strategy, StrategyId, StrategyManager, StrategyStatus};
+use crate::types::events::{BotEvent, SystemEvent};
+use crate::types::volume_strategy::{NewVolumeStrategyInstance, VolumeStrategyInstance};
+use crate::utils::crypto::hash_i32_to_i32;
+use crate::{solana, utils};
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use futures_util::future::join_all;
+use rand::random;
 use std::collections::HashMap;
 use std::sync::Arc;
-use rand::random;
 use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::watch;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
-use tokio::sync::watch;
-use crate::config::app_context::AppContext;
-use crate::config::constants::NEW_STRATEGY_POLLING_FREQUENCY_MS;
-use crate::schema::users::dsl::users;
-use crate::schema::users::is_active;
-use crate::schema::volumestrategyinstances;
-use crate::{solana, utils};
-use crate::strategies::{DepositWithdrawStrategy, VolumeStrategy};
-use crate::strategies::sniper_strategy::SniperStrategy;
-use crate::strategies::sweeper_strategy::SweeperStrategy;
-use crate::types::actions::SolanaAction;
-use crate::types::engine::{Strategy, StrategyId, StrategyManager, StrategyStatus};
-use crate::types::events::{BotEvent, SystemEvent};
-use crate::types::bot_user::{BotUser};
-use crate::types::volume_strategy::{NewVolumeStrategyInstance, VolumeStrategyInstance};
-use crate::utils::crypto::hash_i32_to_i32;
 
 pub struct SolanaStrategyManager {
     strategies: Arc<
@@ -67,8 +67,17 @@ impl StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> for SolanaStrategyManag
             async move {
                 let _ = solana::get_balance(&self.context, &wallet_address).await;
                 if let Some(strategy_pool) = active_strategies.iter().find(|s| s.user_id == uid) {
-                    let pool_details = self.context.rpc_pool.get_pool_details(&strategy_pool.target_pool).await?;
-                    let _ = solana::get_token_balance(&self.context, &wallet_address, &pool_details.base_mint).await;
+                    let pool_details = self
+                        .context
+                        .rpc_pool
+                        .get_pool_details(&strategy_pool.target_pool)
+                        .await?;
+                    let _ = solana::get_token_balance(
+                        &self.context,
+                        &wallet_address,
+                        &pool_details.base_mint,
+                    )
+                    .await;
                 }
                 Ok::<(), anyhow::Error>(())
             }
@@ -106,19 +115,21 @@ impl StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> for SolanaStrategyManag
                 .get_result(&mut conn)
                 .await?;
             strategy.id = strat_id;
-            let volume_strategy =
-                Box::new(VolumeStrategy::new(&self.context, &strategy).await?);
+            let volume_strategy = Box::new(VolumeStrategy::new(&self.context, &strategy).await?);
             strategies.insert(strat_id, Arc::new(Mutex::new(volume_strategy)));
             strat_id
         } else if let Some(sweeper_strategy) = strategy.as_any().downcast_ref::<SweeperStrategy>() {
             let mut strategy = sweeper_strategy.state_machine.instance.clone();
-            let mut strategy_instance = Box::new(SweeperStrategy::new(&self.context, &strategy).await?);
-            let strat_id = utils::crypto::hash_i32_to_i32(strategy_instance.state_machine.instance.id);
+            let mut strategy_instance =
+                Box::new(SweeperStrategy::new(&self.context, &strategy).await?);
+            let strat_id =
+                utils::crypto::hash_i32_to_i32(strategy_instance.state_machine.instance.id);
             strategies.insert(strat_id, Arc::new(Mutex::new(strategy_instance)));
             strat_id
         } else if let Some(sniper_strategy) = strategy.as_any().downcast_ref::<SniperStrategy>() {
             let mut strategy = sniper_strategy.state_machine.instance.clone();
-            let mut strategy_instance = Box::new(SniperStrategy::new(&self.context, &strategy).await?);
+            let mut strategy_instance =
+                Box::new(SniperStrategy::new(&self.context, &strategy).await?);
             let strat_id = strategy_instance.state_machine.instance.id;
             strategies.insert(strat_id, Arc::new(Mutex::new(strategy_instance)));
             strat_id
@@ -134,11 +145,17 @@ impl StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> for SolanaStrategyManag
     async fn drop_strategy(&self, strat_id: StrategyId) -> Result<()> {
         let mut strategies = self.strategies.write().await;
         match strategies.get(&strat_id) {
-            None => { return Err(anyhow::anyhow!("Strategy with id {} not found", strat_id)); }
+            None => {
+                return Err(anyhow::anyhow!("Strategy with id {} not found", strat_id));
+            }
             Some(strategy) => {
-                strategy.lock().await.process_event(
-                    BotEvent::SystemEvent(SystemEvent::DestroyStrategy(strat_id))
-                ).await;
+                strategy
+                    .lock()
+                    .await
+                    .process_event(BotEvent::SystemEvent(SystemEvent::DestroyStrategy(
+                        strat_id,
+                    )))
+                    .await;
             }
         }
 
@@ -155,17 +172,25 @@ impl StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> for SolanaStrategyManag
 
     async fn get_active_strategies(
         &self,
-    ) -> HashMap<StrategyId, Arc<Mutex<Box<dyn Strategy<BotEvent, Arc<Mutex<SolanaAction>>> + Send + Sync>>>> {
+    ) -> HashMap<
+        StrategyId,
+        Arc<Mutex<Box<dyn Strategy<BotEvent, Arc<Mutex<SolanaAction>>> + Send + Sync>>>,
+    > {
         let strategies = self.strategies.read().await;
         let mut active_strategies = HashMap::new();
         for (k, v) in strategies.iter() {
             let strategy = v.lock().await;
 
-            let is_strategy_active = if let Some(volume_strategy) = strategy.as_any().downcast_ref::<VolumeStrategy>() {
-                volume_strategy.state_machine.instance.completed_at.is_none()
-            } else {
-                true
-            };
+            let is_strategy_active =
+                if let Some(volume_strategy) = strategy.as_any().downcast_ref::<VolumeStrategy>() {
+                    volume_strategy
+                        .state_machine
+                        .instance
+                        .completed_at
+                        .is_none()
+                } else {
+                    true
+                };
             if is_strategy_active {
                 active_strategies.insert(*k, v.clone());
             }
@@ -190,13 +215,12 @@ impl StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> for SolanaStrategyManag
                 event_sender.subscribe(),
                 action_sender.clone(),
             )
-                .await?;
+            .await?;
         }
 
         let mut cached_strategies_ids = vec![];
         //todo add self destruct if a strategy is in done or error state
 
-        
         loop {
             tokio::select! {
                 _ = rx.changed() => {
@@ -243,7 +267,6 @@ impl StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> for SolanaStrategyManag
                     self.strategy_notify.send(()).ok();
                 }
             }
-
         }
     }
 }

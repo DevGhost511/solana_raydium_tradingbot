@@ -67,7 +67,7 @@ impl GeyserClientPool {
             clients: results.into_iter().collect::<Map<ProviderName, Arc<_>>>(),
         }
     }
-    
+
     pub async fn get_latest_blockhash(&self) -> Result<GetLatestBlockhashResponse> {
         while let Some((provider_name, client)) = self.clients.iter().next() {
             let commitment = GeyserCommitmentLevel::Finalized;

@@ -56,7 +56,8 @@ pub async fn get_user_from_button_press(
                 .read()
                 .await
                 .tgbot
-                .as_ref().unwrap()
+                .as_ref()
+                .unwrap()
                 .whitelisted_chat_ids
                 .clone()
             {

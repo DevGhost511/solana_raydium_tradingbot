@@ -1,4 +1,8 @@
 use crate::solana::constants;
+use crate::solana::constants::{RAYDIUM_V4_PROGRAM_ID, WSOL_MINT_ADDRESS};
+use crate::solana::pool::{
+    extract_pool_from_init_tx, extract_token_balance_from_pre_or_post_token_balances,
+};
 use crate::storage;
 use crate::storage::cache::RedisPool;
 use crate::types::events::ExecutionReceipt;
@@ -8,25 +12,29 @@ use anyhow::{bail, Result};
 use base64::Engine;
 use borsh::BorshDeserialize;
 use core::panic;
-use std::default::Default;
 use serde::Deserialize;
+use serde_derive::Serialize;
 use serde_json::to_string;
+use solana_sdk::compute_budget::ComputeBudgetInstruction;
 use solana_sdk::message::VersionedMessage;
 use solana_sdk::signature::Signature;
 use solana_sdk::transaction::TransactionError;
 use solana_sdk::{bs58, pubkey::Pubkey, transaction::Transaction};
-use solana_transaction_status::{option_serializer::OptionSerializer, Encodable, EncodableWithMeta, EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatusMeta, UiCompiledInstruction, UiInnerInstructions, UiInstruction, UiMessage, UiParsedInstruction, UiParsedMessage, UiPartiallyDecodedInstruction, UiRawMessage, UiTransactionEncoding};
+use solana_transaction_status::{
+    option_serializer::OptionSerializer, Encodable, EncodableWithMeta,
+    EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
+    EncodedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatusMeta,
+    UiCompiledInstruction, UiInnerInstructions, UiInstruction, UiMessage, UiParsedInstruction,
+    UiParsedMessage, UiPartiallyDecodedInstruction, UiRawMessage, UiTransactionEncoding,
+};
 use spl_associated_token_account::get_associated_token_address;
 use spl_associated_token_account::solana_program::message::Message;
 use spl_token::instruction::TokenInstruction;
-use std::str::FromStr;
-use serde_derive::Serialize;
-use solana_sdk::compute_budget::ComputeBudgetInstruction;
 use spl_token::solana_program::system_program;
+use std::default::Default;
+use std::str::FromStr;
 use tracing::{debug, info, instrument, trace};
 use uuid::Uuid;
-use crate::solana::constants::{RAYDIUM_V4_PROGRAM_ID, WSOL_MINT_ADDRESS};
-use crate::solana::pool::{extract_pool_from_init_tx, extract_token_balance_from_pre_or_post_token_balances};
 
 #[derive(Debug)]
 pub struct Swap {
@@ -103,7 +111,9 @@ pub fn is_tx_a_sol_transfer(tx: &EncodedTransactionWithStatusMeta) -> bool {
         if let UiInstruction::Parsed(ix) = instruction {
             match ix {
                 UiParsedInstruction::Parsed(ix) => {
-                    if ix.program == system_program::id().to_string() && ix.parsed["type"] == "transfer" {
+                    if ix.program == system_program::id().to_string()
+                        && ix.parsed["type"] == "transfer"
+                    {
                         return true;
                     }
                 }
@@ -140,14 +150,14 @@ pub fn parse_tx_for_set_compute_unit_price(
     Err("could not parse compute unit price".into())
 }
 
-
 pub fn is_tx_a_token_transfer(tx: &EncodedTransactionWithStatusMeta) -> bool {
     let instructions = self::parse_instructions(tx).unwrap();
     for instruction in instructions {
         if let UiInstruction::Parsed(ix) = instruction {
             match ix {
                 UiParsedInstruction::Parsed(ix) => {
-                    if ix.program == constants::TOKEN_PROGRAM_ID && ix.parsed["type"] == "transfer" {
+                    if ix.program == constants::TOKEN_PROGRAM_ID && ix.parsed["type"] == "transfer"
+                    {
                         return true;
                     }
                 }
@@ -203,7 +213,7 @@ pub fn parse_tx_for_swaps(tx: &EncodedTransactionWithStatusMeta) -> Option<Vec<S
                 &Pubkey::from_str(&*authority).unwrap(),
                 &constants::WSOL_MINT_PUBKEY,
             )
-                .to_string();
+            .to_string();
             if let Some(meta) = &tx.meta {
                 if meta.err.is_some() {
                     return None;

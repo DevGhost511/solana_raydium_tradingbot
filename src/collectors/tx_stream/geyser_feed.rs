@@ -14,7 +14,7 @@ use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
 use solana_sdk::transaction::{Transaction, VersionedTransaction};
-use solana_transaction_status::{EncodedTransactionWithStatusMeta};
+use solana_transaction_status::EncodedTransactionWithStatusMeta;
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
@@ -49,9 +49,10 @@ use yellowstone_grpc_proto::geyser::SubscribeRequestAccountsDataSlice;
 use yellowstone_grpc_proto::prelude::subscribe_update::UpdateOneof;
 use yellowstone_grpc_proto::prost::bytes::Bytes;
 
-
 // Helper function to get updated account filters
-async fn get_account_filters(context: &AppContext) -> HashMap<String, SubscribeRequestFilterAccounts> {
+async fn get_account_filters(
+    context: &AppContext,
+) -> HashMap<String, SubscribeRequestFilterAccounts> {
     let accounts: Vec<String> = context
         .cache
         .get_accounts()
@@ -73,7 +74,6 @@ async fn get_account_filters(context: &AppContext) -> HashMap<String, SubscribeR
     }
 }
 
-
 pub async fn geyser_feed(
     context: AppContext,
     geyser_client: Arc<Mutex<GeyserGrpcClient<InterceptorXToken>>>,
@@ -85,7 +85,6 @@ pub async fn geyser_feed(
 
     let account_tx = context.geyser_resubscribe_account_tx_notify.clone();
     let mut account_rx = account_tx.subscribe();
-
 
     let blocks = hashmap! {
         "client".to_owned() => SubscribeRequestFilterBlocks::default()
@@ -106,7 +105,7 @@ pub async fn geyser_feed(
             "".to_owned() => SubscribeRequestFilterTransactions {
                 vote: Some(false),
                 ..Default::default()
-            } 
+            }
     };
 
     let mut users_count = context.cache.get_accounts_count().await;
@@ -149,7 +148,6 @@ pub async fn geyser_feed(
         .await
         .unwrap();
 
-
     let subscribe_tx = Arc::new(Mutex::new(subscribe_tx));
 
     let subscribe_tx_clone = Arc::clone(&subscribe_tx);
@@ -161,16 +159,24 @@ pub async fn geyser_feed(
             let mut accs = context.cache.get_accounts().await;
             accs.sort();
             if accs == cached_accounts {
-                trace!("Accounts have not changed, skipping subscription update, monitoring: {:?}", accs);
+                trace!(
+                    "Accounts have not changed, skipping subscription update, monitoring: {:?}",
+                    accs
+                );
                 continue;
             }
-            trace!("Accounts have changed, updating subscription, monitoring: {:?}", accs);
+            trace!(
+                "Accounts have changed, updating subscription, monitoring: {:?}",
+                accs
+            );
             cached_accounts = accs;
             let transactions = transactions.clone();
             let transactions_status = transactions_status.clone();
             // Dynamically send the updated subscription request when accounts change
             let updated_accounts = get_account_filters(&context).await;
-            subscribe_tx_clone.lock().await
+            subscribe_tx_clone
+                .lock()
+                .await
                 .send(SubscribeRequest {
                     accounts: updated_accounts,
                     slots: Default::default(),
@@ -184,7 +190,6 @@ pub async fn geyser_feed(
                 .unwrap();
         }
     });
-
 
     while let Some(message) = stream.next().await {
         match message {
@@ -204,16 +209,16 @@ pub async fn geyser_feed(
                             block_time.timestamp,
                             delay_ms,
                             average_delay
-                            );
+                        );
                         continue;
                     }
 
                     Some(UpdateOneof::Account(account)) => {
                         trace!(
-                                "new account update: filters {:?}, account: {:?}",
-                                msg.filters,
-                                account
-                                );
+                            "new account update: filters {:?}, account: {:?}",
+                            msg.filters,
+                            account
+                        );
                         let acc: AccountPretty = account.into();
                         transmitter.send(GeyserFeedEvent::Account(acc)).unwrap();
 
@@ -232,13 +237,17 @@ pub async fn geyser_feed(
                         //     "new transaction update: filters {:?}, transaction status: {:?}",
                         //     msg.filters, status
                         // );
-                        transmitter.send(GeyserFeedEvent::TxStatusUpdate(status)).unwrap();
+                        transmitter
+                            .send(GeyserFeedEvent::TxStatusUpdate(status))
+                            .unwrap();
                         continue;
                     }
                     Some(UpdateOneof::Ping(_)) => {
                         // This is necessary to keep load balancers that expect client pings alive. If your load balancer doesn't
                         // require periodic client pings then this is unnecessary
-                        subscribe_tx.lock().await
+                        subscribe_tx
+                            .lock()
+                            .await
                             .send(SubscribeRequest {
                                 ping: Some(SubscribeRequestPing { id: 1 }),
                                 ..Default::default()

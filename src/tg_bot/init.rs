@@ -31,7 +31,16 @@ pub async fn build_dispatcher(
         .unwrap()
         .whitelisted_chat_ids
         .clone();
-    let admin_chat_ids_opt_ref = &config.context.settings.read().await.tgbot.as_ref().unwrap().admin_chat_ids.clone();
+    let admin_chat_ids_opt_ref = &config
+        .context
+        .settings
+        .read()
+        .await
+        .tgbot
+        .as_ref()
+        .unwrap()
+        .admin_chat_ids
+        .clone();
     fn schema(
         whitelisted_chat_ids_opt_ref: &Option<Vec<i64>>,
         admin_chat_ids_opt_ref: &Option<Vec<i64>>,

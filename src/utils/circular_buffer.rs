@@ -69,6 +69,9 @@ where
 
     /// Gets all the values in the buffer in order.
     pub fn get_all_values(&self) -> Vec<&V> {
-        self.deque.iter().filter_map(|key| self.map.get(key)).collect()
+        self.deque
+            .iter()
+            .filter_map(|key| self.map.get(key))
+            .collect()
     }
 }

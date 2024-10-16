@@ -1,5 +1,5 @@
-use crate::types::events::BotEvent;
 use crate::types::actions::{Amount, SolanaTransferActionPayload};
+use crate::types::events::BotEvent;
 
 #[derive(Debug, Clone)]
 pub enum SolanaStrategyEvent {

@@ -31,10 +31,7 @@ pub async fn execute_tx(
     fee_payer: &Keypair,
     instructions: &[Instruction],
 ) -> Result<Signature> {
-    debug!(
-        "Executing tx with {} instructions",
-        instructions.len()
-    );
+    debug!("Executing tx with {} instructions", instructions.len());
     let mut tx = Transaction::new_with_payer(instructions, Some(&fee_payer.pubkey()));
     let senders = if sender.pubkey() != fee_payer.pubkey() {
         debug!("Adding fee payer to the transaction");
@@ -47,7 +44,7 @@ pub async fn execute_tx(
 
     let signature = *tx.get_signature();
 
-    let mut handles: Vec<Pin<Box<dyn Future<Output=Result<()>> + Send>>> = vec![];
+    let mut handles: Vec<Pin<Box<dyn Future<Output = Result<()>> + Send>>> = vec![];
 
     if context.bloxroute.use_bloxroute_trader_api {
         let fut = Box::pin(context.bloxroute.add_bx_tip_and_send_tx(
@@ -67,7 +64,10 @@ pub async fn execute_tx(
         handles = remaining;
         match result {
             Ok(_) => {
-                debug!("Transaction sent to all providers, signature `{:?}`", signature);
+                debug!(
+                    "Transaction sent to all providers, signature `{:?}`",
+                    signature
+                );
                 return Ok(signature);
             }
             Err(e) => all_errors.push(e),

@@ -1,26 +1,26 @@
 use crate::config::app_context::AppContext;
-use crate::schema::users::dsl::users;
 use crate::schema::bot_events::dsl::bot_events;
+use crate::schema::snipingstrategyinstances;
+use crate::schema::users::dsl::users;
 use crate::schema::users::{all_columns, chat_id, id, last_login};
+use crate::solana;
 use crate::storage::cache::RedisPool;
-use crate::types::pool::RaydiumPoolPriceUpdate;
 use crate::types::bot_user::{BotUser, NewBotUser};
+use crate::types::events::{BotEvent, BotEventModel};
+use crate::types::pool::RaydiumPoolPriceUpdate;
 use crate::types::sniping_strategy::SnipingStrategyInstance;
 use crate::utils::keys::{private_key_string_base58, public_key_string};
 use anyhow::Result;
 use diesel::prelude::*;
-use diesel_async::RunQueryDsl;
 use diesel_async::pooled_connection::deadpool::{Object, Pool};
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+use diesel_async::RunQueryDsl;
 use diesel_async::{pooled_connection, AsyncConnection, AsyncPgConnection};
 use solana_sdk::signature::{Keypair, Signer};
 use std::default::Default;
 use std::fmt::Debug;
 use std::sync::Arc;
 use teloxide::types::User as TelegramUser;
-use crate::schema::snipingstrategyinstances;
-use crate::solana;
-use crate::types::events::{BotEvent, BotEventModel};
 
 pub type DbPool = Arc<Pool<AsyncPgConnection>>;
 
@@ -63,7 +63,7 @@ pub async fn save_new_sniping_strategy_to_db(
         stop_loss_percent_move_down: strategy.stop_loss_percent_move_down,
         take_profit_percent_move_up: strategy.take_profit_percent_move_up,
         force_exit_horizon_s: strategy.force_exit_horizon_s,
-        max_simultaneous_snipes:  strategy.max_simultaneous_snipes,
+        max_simultaneous_snipes: strategy.max_simultaneous_snipes,
         min_pool_liquidity_sol: strategy.min_pool_liquidity_sol,
         skip_pump_fun: strategy.skip_pump_fun,
         skip_mintable: strategy.skip_mintable,
@@ -104,11 +104,7 @@ pub async fn load_or_create_user(
     }
 }
 
-
-pub async fn save_bot_event_to_db(
-    diesel_pool: &DbPool,
-    event: BotEventModel,
-) -> Result<()> {
+pub async fn save_bot_event_to_db(diesel_pool: &DbPool, event: BotEventModel) -> Result<()> {
     let mut conn = diesel_pool.get().await?;
     let _ = diesel::insert_into(bot_events)
         .values(event)

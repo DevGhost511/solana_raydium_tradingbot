@@ -2,14 +2,23 @@ use crate::collectors::tx_stream::blockchain_stream;
 use crate::collectors::tx_stream::types::GeyserFeedEvent::{Account, Transaction, TxStatusUpdate};
 use crate::collectors::tx_stream::types::{AccountPretty, GeyserFeedEvent, TransactionPretty};
 use crate::config::app_context::AppContext;
+use crate::config::constants::{BALANCE_CHANGE_THRESHOLD_SOL, BASE_TX_FEE_SOL};
 use crate::config::settings::Mode;
 use crate::solana::constants;
+use crate::solana::pool::extract_pool_from_init_tx;
 use crate::solana::rpc_pool::RpcClientPool;
-use crate::solana::tx_parser::{is_tx_a_sol_transfer, is_tx_a_token_transfer, parse_tx_for_set_compute_unit_price, parse_tx_for_swaps};
+use crate::solana::tx_parser::{
+    is_tx_a_sol_transfer, is_tx_a_token_transfer, parse_tx_for_set_compute_unit_price,
+    parse_tx_for_swaps,
+};
 use crate::storage::cache::RedisPool;
 use crate::storage::persistent::DbPool;
 use crate::types::engine::{Collector, EventStream};
-use crate::types::events::{BlockchainEvent, BlockchainEvent::{AccountUpdate, Deposit, Withdrawal}, BotEvent, ExecutionReceipt};
+use crate::types::events::{
+    BlockchainEvent,
+    BlockchainEvent::{AccountUpdate, Deposit, Withdrawal},
+    BotEvent, ExecutionReceipt,
+};
 use crate::types::pool::{RaydiumPool, RaydiumPoolPriceUpdate, RaydiumSwapEvent, TradeDirection};
 use crate::utils::decimals;
 use crate::{solana, storage, utils};
@@ -23,6 +32,7 @@ use solana_client::nonblocking::pubsub_client::PubsubClient;
 use solana_client::rpc_client::RpcClient;
 use solana_farm_client::client::FarmClient;
 use solana_sdk::pubkey::Pubkey;
+use solana_transaction_status::option_serializer::OptionSerializer;
 use solana_transaction_status::{
     EncodedTransaction, UiInstruction, UiMessage, UiParsedInstruction, UiParsedMessage,
     UiPartiallyDecodedInstruction,
@@ -31,14 +41,13 @@ use std::collections::{HashMap, HashSet};
 use std::future::ready;
 use std::hash::Hash;
 use std::sync::Arc;
-use solana_transaction_status::option_serializer::OptionSerializer;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info, trace, warn};
 use url::quirks::hash;
-use yellowstone_grpc_proto::prelude::{SubscribeUpdateTransaction, SubscribeUpdateTransactionStatus};
-use crate::config::constants::{BALANCE_CHANGE_THRESHOLD_SOL, BASE_TX_FEE_SOL};
-use crate::solana::pool::extract_pool_from_init_tx;
+use yellowstone_grpc_proto::prelude::{
+    SubscribeUpdateTransaction, SubscribeUpdateTransactionStatus,
+};
 
 /// A collector that listens to raydium pool events logs based on a [Filter](Filter),
 /// and generates a stream of [events](Log).
@@ -65,7 +74,8 @@ impl RealtimeFeedEventsCollector {
                     Some(swap_uuid) => {
                         trace!(
                             "Marking swap {} as seen onchain with signature {}",
-                            swap_uuid, tx.signature
+                            swap_uuid,
+                            tx.signature
                         );
                         self.context
                             .cache
@@ -107,11 +117,17 @@ impl RealtimeFeedEventsCollector {
         }
     }
 
-    pub async fn parse_status_upate_transaction(&self, tx_status: SubscribeUpdateTransactionStatus) -> Option<Vec<BotEvent>> {
+    pub async fn parse_status_upate_transaction(
+        &self,
+        tx_status: SubscribeUpdateTransactionStatus,
+    ) -> Option<Vec<BotEvent>> {
         None
     }
 
-    pub async fn parse_transaction(&self, tx_update: SubscribeUpdateTransaction) -> Option<Vec<BotEvent>> {
+    pub async fn parse_transaction(
+        &self,
+        tx_update: SubscribeUpdateTransaction,
+    ) -> Option<Vec<BotEvent>> {
         let tx: TransactionPretty = tx_update.clone().into();
         //failing early
         if tx.is_vote {
@@ -125,10 +141,15 @@ impl RealtimeFeedEventsCollector {
             events.push(bot_tx_confirmation_event);
         }
 
-        if let Some(tx_meta) = &tx.tx.meta && tx.is_successful() {
+        if let Some(tx_meta) = &tx.tx.meta
+            && tx.is_successful()
+        {
             if let OptionSerializer::Some(cu_consumed) = tx_meta.compute_units_consumed {
                 if cu_consumed > 0 && tx_meta.fee > BASE_TX_FEE_SOL {
-                    self.context.cache.update_optimal_fee((tx_meta.fee - BASE_TX_FEE_SOL) / cu_consumed).await;
+                    self.context
+                        .cache
+                        .update_optimal_fee((tx_meta.fee - BASE_TX_FEE_SOL) / cu_consumed)
+                        .await;
                 }
             }
         }
@@ -178,16 +199,16 @@ impl RealtimeFeedEventsCollector {
                     // can happen due to the price convertion, theorietically, still can't afford panic
                     if updated_base_reserve_ui < 0.0 {
                         error!(
-    "{} base reserve is negative {}, pool is dead",
-    client_pool.id, updated_base_reserve_ui
-    );
+                            "{} base reserve is negative {}, pool is dead",
+                            client_pool.id, updated_base_reserve_ui
+                        );
                         return None;
                     }
                     if updated_quote_reserve_ui < 0.0 {
                         error!(
-    "{} quote reserve is negative {}, pool is dead",
-    client_pool.id, updated_quote_reserve_ui
-    );
+                            "{} quote reserve is negative {}, pool is dead",
+                            client_pool.id, updated_quote_reserve_ui
+                        );
                         return None;
                     }
                     info!("Pool update wih Geyser: {:?}", price_update);
@@ -213,7 +234,9 @@ impl RealtimeFeedEventsCollector {
             let mut tokens = self.context.cache.target_tokens.lock().await;
             if !tokens.contains(&new_pool.base_mint) {
                 tokens.put(new_pool.base_mint, new_pool.id);
-                events.push(BotEvent::BlockchainEvent(BlockchainEvent::RaydiumNewPoolEvent(new_pool, price_update)));
+                events.push(BotEvent::BlockchainEvent(
+                    BlockchainEvent::RaydiumNewPoolEvent(new_pool, price_update),
+                ));
             } else {
                 warn!("Double deployment, skipping, pool: {:?}", new_pool);
             }
@@ -222,18 +245,37 @@ impl RealtimeFeedEventsCollector {
     }
 
     pub async fn parse_account(&self, acc: AccountPretty) -> Option<Vec<BotEvent>> {
-        let prev_balance = self.context.cache.get_account(&acc.pubkey).await.flatten().map(|a| a.lamports).unwrap_or(0);
-        self.context.cache.update_account(acc.pubkey, Some(acc.clone())).await;
+        let prev_balance = self
+            .context
+            .cache
+            .get_account(&acc.pubkey)
+            .await
+            .flatten()
+            .map(|a| a.lamports)
+            .unwrap_or(0);
+        self.context
+            .cache
+            .update_account(acc.pubkey, Some(acc.clone()))
+            .await;
         let mut events = vec![BotEvent::BlockchainEvent(AccountUpdate(acc.clone()))];
         // checking deposit - incoming is not from the trading wallets
-        if !self.context.cache.if_agent_signature(&acc.txn_signature).await {
-            if acc.lamports > prev_balance && acc.lamports - prev_balance > BALANCE_CHANGE_THRESHOLD_SOL {
+        if !self
+            .context
+            .cache
+            .if_agent_signature(&acc.txn_signature)
+            .await
+        {
+            if acc.lamports > prev_balance
+                && acc.lamports - prev_balance > BALANCE_CHANGE_THRESHOLD_SOL
+            {
                 events.push(BotEvent::BlockchainEvent(Deposit(
                     acc.txn_signature,
                     acc.pubkey,
                     acc.lamports - prev_balance,
                 )));
-            } else if acc.lamports < prev_balance && prev_balance - acc.lamports > BALANCE_CHANGE_THRESHOLD_SOL {
+            } else if acc.lamports < prev_balance
+                && prev_balance - acc.lamports > BALANCE_CHANGE_THRESHOLD_SOL
+            {
                 events.push(BotEvent::BlockchainEvent(Withdrawal(
                     acc.txn_signature,
                     acc.pubkey,
@@ -259,7 +301,9 @@ impl Collector<BotEvent> for RealtimeFeedEventsCollector {
                     match e_clone {
                         Transaction(tx_update) => self.parse_transaction(tx_update).await,
                         Account(acc) => self.parse_account(acc).await,
-                        TxStatusUpdate(tx_status) => self.parse_status_upate_transaction(tx_status).await,
+                        TxStatusUpdate(tx_status) => {
+                            self.parse_status_upate_transaction(tx_status).await
+                        }
                     }
                 }
             })

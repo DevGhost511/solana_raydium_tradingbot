@@ -8,16 +8,7 @@ use diesel_derives::{Associations, Identifiable, Insertable, Queryable, Selectab
 use serde_derive::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
 
-#[derive(
-    Default,
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Queryable,
-    Selectable,
-    Associations,
-)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Queryable, Selectable, Associations)]
 #[diesel(check_for_backend(Pg))]
 #[serde(rename_all = "lowercase")]
 #[belongs_to(BotUser, foreign_key = "user_id")]
@@ -61,7 +52,6 @@ pub struct NewVolumeStrategyInstance {
     pub agents_selling_in_tranche: i32,
     pub agents_keep_tokens_lamports: i64,
 }
-
 
 impl From<&VolumeStrategyInstance> for NewVolumeStrategyInstance {
     fn from(new: &VolumeStrategyInstance) -> Self {

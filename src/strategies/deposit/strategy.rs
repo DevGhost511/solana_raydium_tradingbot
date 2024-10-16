@@ -2,24 +2,26 @@ use crate::config::app_context::AppContext;
 use crate::schema::users::dsl::users;
 use crate::schema::users::wallet_address;
 use crate::tg_bot::notify_user;
-use crate::types::actions::{Amount, Asset, SolanaAction, SolanaActionPayload, SolanaTransferActionPayload};
+use crate::types::actions::{
+    Amount, Asset, SolanaAction, SolanaActionPayload, SolanaTransferActionPayload,
+};
+use crate::types::bot_user::BotUser;
 use crate::types::engine::{Strategy, StrategyStatus};
 use crate::types::events::{BlockchainEvent, BotEvent};
 use crate::types::keys::KeypairClonable;
-use crate::types::bot_user::BotUser;
 use crate::utils::decimals::lamports_to_sol;
 use crate::utils::formatters::format_sol;
 use anyhow::Result;
 use async_trait::async_trait;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+use maplit::hashmap;
 use solana_sdk::pubkey::Pubkey;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
-use maplit::hashmap;
 use teloxide::payloads::AnswerPreCheckoutQuerySetters;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -53,10 +55,10 @@ impl Strategy<BotEvent, Arc<Mutex<SolanaAction>>> for DepositWithdrawStrategy {
     async fn process_event(&mut self, event: BotEvent) -> Vec<Arc<Mutex<SolanaAction>>> {
         match event {
             BotEvent::BlockchainEvent(BlockchainEvent::Deposit(
-                                          _signature,
-                                          user_wallet,
-                                          amount,
-                                      )) => {
+                _signature,
+                user_wallet,
+                amount,
+            )) => {
                 let engine_config = self.context.settings.read().await.engine.clone();
                 let executor_config = self.context.settings.read().await.executor.clone();
                 let bot_wallet_opt = engine_config.bot_wallet.clone();
@@ -76,19 +78,18 @@ impl Strategy<BotEvent, Arc<Mutex<SolanaAction>>> for DepositWithdrawStrategy {
                                 format_sol(lamports_to_sol(amount))
                             ),
                         )
-                            .await;
+                        .await;
                         let main_wallet =
                             KeypairClonable::new_from_privkey(&user.wallet_private_key).unwrap();
                         vec![Arc::new(Mutex::new(SolanaAction::new(
                             main_wallet.clone(),
-                            vec![
-                                SolanaActionPayload::SolanaTransferActionPayload(
-                                    SolanaTransferActionPayload {
-                                        asset: Asset::Sol,
-                                        receiver: Pubkey::from_str(&bot_wallet_str).unwrap(),
-                                        amount: Amount::Exact((amount as f64 * bot_fee) as u64),
-                                    },
-                                )],
+                            vec![SolanaActionPayload::SolanaTransferActionPayload(
+                                SolanaTransferActionPayload {
+                                    asset: Asset::Sol,
+                                    receiver: Pubkey::from_str(&bot_wallet_str).unwrap(),
+                                    amount: Amount::Exact((amount as f64 * bot_fee) as u64),
+                                },
+                            )],
                         )))]
                     } else {
                         vec![]

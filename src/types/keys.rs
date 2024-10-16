@@ -1,15 +1,15 @@
 use crate::utils::keys::clone_keypair;
 use anyhow::{bail, Result};
+use diesel::pg::Pg;
+use diesel::serialize::{IsNull, Output, ToSql};
+use diesel::{serialize, sql_types};
+use serde::{Serialize, Serializer};
 use solana_sdk::bs58;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, Signer};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
-use diesel::pg::Pg;
-use diesel::serialize::{IsNull, Output, ToSql};
-use diesel::{serialize, sql_types};
-use serde::{Serialize, Serializer};
 use tracing::error;
 
 pub struct KeypairClonable(Keypair);
@@ -44,7 +44,6 @@ impl From<KeypairClonable> for Keypair {
     }
 }
 
-
 impl Serialize for KeypairClonable {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -60,7 +59,6 @@ impl ToSql<sql_types::Text, Pg> for KeypairClonable {
         Ok(IsNull::No)
     }
 }
-
 
 impl KeypairClonable {
     pub fn new() -> Self {

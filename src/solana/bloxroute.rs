@@ -183,7 +183,8 @@ impl BloxRoute {
         // Convert the tip wallet address to a Pubkey
         let bloxroute_tip_wallet = Pubkey::from_str(BLOXROUTE_TIP_WALLET).unwrap();
 
-        let tip_transfer_instruction = transfer(&fee_payer.pubkey(), &bloxroute_tip_wallet, self.tip);
+        let tip_transfer_instruction =
+            transfer(&fee_payer.pubkey(), &bloxroute_tip_wallet, self.tip);
 
         // Create the memo instruction
 
@@ -205,7 +206,8 @@ impl BloxRoute {
         } else {
             vec![sender]
         };
-        let mut transaction = Transaction::new_with_payer(&all_instructions, Some(&fee_payer.pubkey()));
+        let mut transaction =
+            Transaction::new_with_payer(&all_instructions, Some(&fee_payer.pubkey()));
         transaction.sign(&senders, *recent_blockhash);
 
         // Serialize the transaction to raw bytes using bincode

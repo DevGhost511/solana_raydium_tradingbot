@@ -79,7 +79,7 @@ where
     pub fn get_by_value(&self, value: &V) -> Option<&K> {
         self.reverse_map.get(value)
     }
-    
+
     pub fn pop_front(&mut self) -> Option<(K, V)> {
         if let Some(key) = self.deque.pop_front() {
             if let Some(value) = self.map.remove(&key) {
@@ -91,7 +91,7 @@ where
         }
         None
     }
-    
+
     pub fn remove(&mut self, key: &K) -> Option<V> {
         if let Some(value) = self.map.remove(key) {
             // Remove from reverse map and reverse deque
@@ -101,7 +101,7 @@ where
         }
         None
     }
-    
+
     pub fn get_all_values(&self) -> Vec<V> {
         self.reverse_deque.iter().cloned().collect()
     }

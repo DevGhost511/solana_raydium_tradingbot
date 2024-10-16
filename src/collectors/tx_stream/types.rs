@@ -1,20 +1,25 @@
 use crate::config::app_context::AppContext;
 use crate::config::settings::ProviderName;
 use crate::solana::constants;
-use spl_token::state::Account as SplTokenAccount;
+use serde::ser::SerializeStruct;
+use serde::Serialize;
 use solana_sdk::account::Account as SDKTokenAccount;
+use solana_sdk::account::Account;
 use solana_sdk::bs58;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
-use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction, EncodedTransactionWithStatusMeta, UiInnerInstructions, UiInstruction, UiMessage, UiParsedInstruction, UiParsedMessage, UiPartiallyDecodedInstruction, UiTransactionEncoding, UiTransactionStatusMeta};
+use solana_transaction_status::option_serializer::OptionSerializer;
+use solana_transaction_status::{
+    EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
+    EncodedTransactionWithStatusMeta, UiInnerInstructions, UiInstruction, UiMessage,
+    UiParsedInstruction, UiParsedMessage, UiPartiallyDecodedInstruction, UiTransactionEncoding,
+    UiTransactionStatusMeta,
+};
+use spl_token::solana_program::program_pack::Pack;
+use spl_token::state::Account as SplTokenAccount;
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
-use serde::ser::SerializeStruct;
-use serde::Serialize;
-use solana_sdk::account::Account;
-use solana_transaction_status::option_serializer::OptionSerializer;
-use spl_token::solana_program::program_pack::Pack;
 use tokio::sync::{Mutex, RwLock};
 use yellowstone_grpc_proto::geyser::SubscribeUpdateTransaction;
 use yellowstone_grpc_proto::prelude::{SubscribeUpdateAccount, SubscribeUpdateTransactionStatus};
@@ -42,7 +47,10 @@ impl TransactionPretty {
     }
 
     pub fn is_successful(&self) -> bool {
-        self.tx.meta.as_ref().map_or(false, |meta| meta.status.is_ok())
+        self.tx
+            .meta
+            .as_ref()
+            .map_or(false, |meta| meta.status.is_ok())
     }
 }
 
@@ -134,7 +142,10 @@ impl Serialize for AccountPretty {
         state.serialize_field("rent_epoch", &self.rent_epoch)?;
         state.serialize_field("data_encoded", &self.data_encoded)?;
         state.serialize_field("data", &hex::encode(&self.data))?;
-        state.serialize_field("token_unpacked_data", &format!("{:?}", self.token_unpacked_data))?;
+        state.serialize_field(
+            "token_unpacked_data",
+            &format!("{:?}", self.token_unpacked_data),
+        )?;
         state.serialize_field("write_version", &self.write_version)?;
         state.serialize_field("txn_signature", &self.txn_signature)?;
         state.end()
@@ -167,15 +178,16 @@ impl From<SubscribeUpdateAccount> for AccountPretty {
     }
 }
 
-
 impl From<SDKTokenAccount> for AccountPretty {
-    fn from(SDKTokenAccount {
-                lamports,
-                owner,
-                executable,
-                rent_epoch,
-                data,
-            }: SDKTokenAccount) -> Self {
+    fn from(
+        SDKTokenAccount {
+            lamports,
+            owner,
+            executable,
+            rent_epoch,
+            data,
+        }: SDKTokenAccount,
+    ) -> Self {
         let token_unpacked_data = SplTokenAccount::unpack(&data).ok();
         let data_encoded = hex::encode(data.clone());
         Self {

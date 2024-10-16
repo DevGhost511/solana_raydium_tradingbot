@@ -1,6 +1,7 @@
 use crate::collectors::tx_stream::geyser_feed::geyser_feed;
 use crate::collectors::tx_stream::types::{GeyserFeedEvent, TransactionPretty};
 use crate::config::app_context::AppContext;
+use crate::config::constants::GEYSER_TX_FEED_BUFFER_CAPACITY;
 use crate::solana::geyser_pool::GeyserClientPool;
 use crate::solana::rpc_pool::RpcClientPool;
 use crate::solana::ws_pool::PubsubClientPool;
@@ -22,7 +23,6 @@ use tokio_stream::StreamExt;
 use tracing::field::debug;
 use tracing::{debug, info, instrument, trace};
 use tracing_subscriber::layer::Context;
-use crate::config::constants::GEYSER_TX_FEED_BUFFER_CAPACITY;
 
 // this one is aggregated stream - chooses the fastest from the available  geyser(s) and websocket(s)
 pub async fn blockchain_stream(
@@ -42,8 +42,11 @@ pub async fn blockchain_stream(
     let stream_with_dupes_removed =
         StreamExt::filter_map(UnboundedReceiverStream::new(rx), move |e| match &e {
             GeyserFeedEvent::Transaction(tx) => {
-                let signature = tx.clone().transaction.map(|tx|
-                    Signature::try_from(tx.signature.as_slice()).ok()).flatten()?;
+                let signature = tx
+                    .clone()
+                    .transaction
+                    .map(|tx| Signature::try_from(tx.signature.as_slice()).ok())
+                    .flatten()?;
                 if tx_buffer.contains_key(&signature) {
                     return None;
                 }

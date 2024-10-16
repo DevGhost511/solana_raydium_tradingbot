@@ -1,23 +1,29 @@
 use crate::config::app_context::AppContext;
-use crate::config::constants::{BASE_TX_FEE_SOL, MAX_TRANSFERS_IN_ONE_TX, NEW_ACCOUNT_THRESHOLD_SOL, RAYDIUM_SWAP_FEE, RENT_EXEMPTION_THRESHOLD_SOL};
+use crate::config::constants::{
+    BASE_TX_FEE_SOL, MAX_TRANSFERS_IN_ONE_TX, NEW_ACCOUNT_THRESHOLD_SOL, RAYDIUM_SWAP_FEE,
+    RENT_EXEMPTION_THRESHOLD_SOL,
+};
 use crate::schema::traders;
-use crate::schema::traders::strategy_instance_id;
 use crate::schema::traders::dsl::traders as traders_dsl;
-use crate::schema::volumestrategyinstances;
-use crate::schema::volumestrategyinstances::dsl::volumestrategyinstances as volumestrategyinstances_dsl;
-use crate::schema::volumestrategyinstances::{id as volumestrategyinstances_id};
+use crate::schema::traders::strategy_instance_id;
 use crate::schema::users::dsl::users;
 use crate::schema::users::{chat_id, id as users_id};
-use crate::types::actions::{Amount, Asset, SolanaAction, SolanaActionPayload, SolanaTransferActionPayload};
+use crate::schema::volumestrategyinstances;
+use crate::schema::volumestrategyinstances::dsl::volumestrategyinstances as volumestrategyinstances_dsl;
+use crate::schema::volumestrategyinstances::id as volumestrategyinstances_id;
+use crate::solana;
+use crate::strategies::events::{AgentEvent, SolanaStrategyEvent};
+use crate::strategies::volume_strategy::agent::{self, AgentState};
+use crate::types::actions::{
+    Amount, Asset, SolanaAction, SolanaActionPayload, SolanaTransferActionPayload,
+};
+use crate::types::bot_user::{BotUser, Trader};
 use crate::types::events::BotEvent::HeartBeat;
 use crate::types::events::{BotEvent, TickSizeMs};
 use crate::types::keys::KeypairClonable;
 use crate::types::pool::RaydiumPool;
-use crate::types::bot_user::{BotUser, Trader};
 use crate::types::volume_strategy::VolumeStrategyInstance;
 use crate::utils::Stopwatch;
-use crate::strategies::volume_strategy::agent::{self, AgentState};
-use crate::strategies::events::{AgentEvent, SolanaStrategyEvent};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -29,14 +35,13 @@ use log::{debug, error};
 use solana_sdk::pubkey::Pubkey;
 use spl_associated_token_account::get_associated_token_address;
 use statig::awaitable::{prelude::*, StateMachine};
+use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
 use std::sync::{Arc, Mutex as StdMutex};
 use teloxide::prelude::{ChatId, Requester};
 use tokio::sync::{Mutex as TokioMutex, Mutex};
 use tokio::time::sleep;
 use tracing::{info, trace};
-use std::fmt::{Debug, Formatter};
-use std::ops::Deref;
-use crate::solana;
 
 #[derive(Default, Clone)]
 pub enum ExecutionStatus {
@@ -74,7 +79,10 @@ impl Debug for SweeperStrategyStateMachine {
     on_dispatch = "Self::on_dispatch"
 )]
 impl SweeperStrategyStateMachine {
-    pub async fn new(context: &AppContext, volume_strategy_instance: &VolumeStrategyInstance) -> Result<Self> {
+    pub async fn new(
+        context: &AppContext,
+        volume_strategy_instance: &VolumeStrategyInstance,
+    ) -> Result<Self> {
         let pool = Arc::new(
             context
                 .rpc_pool
@@ -100,8 +108,8 @@ impl SweeperStrategyStateMachine {
                 strat_actions_generated_from_event.clone(),
                 None,
             )
-                .await?
-                .state_machine(),
+            .await?
+            .state_machine(),
         ));
         let main_wallet_clone = main_wallet.clone();
         let mut strategy = SweeperStrategyStateMachine {
@@ -127,15 +135,26 @@ impl SweeperStrategyStateMachine {
             .filter(traders::wallet.ne(&main_wallet))
             .select(traders::all_columns)
             .load::<Trader>(&mut conn)
-            .await {
+            .await
+        {
             self.agents = stream::iter(strat_traders.into_iter())
                 .map(|trader| {
                     let parent_strat = self.clone();
                     async move {
-                        let trader_sol_balance_res = solana::get_balance(&parent_strat.context, &trader.wallet).await;
-                        let trader_token_balance = solana::get_token_balance(&parent_strat.context, &trader.wallet, &parent_strat.pool.base_mint).await.unwrap_or(0);
+                        let trader_sol_balance_res =
+                            solana::get_balance(&parent_strat.context, &trader.wallet).await;
+                        let trader_token_balance = solana::get_token_balance(
+                            &parent_strat.context,
+                            &trader.wallet,
+                            &parent_strat.pool.base_mint,
+                        )
+                        .await
+                        .unwrap_or(0);
                         if let Ok(trader_sol_balance) = trader_sol_balance_res {
-                            if trader_sol_balance < NEW_ACCOUNT_THRESHOLD_SOL && trader_token_balance < (parent_strat.instance.agents_keep_tokens_lamports as u64) {
+                            if trader_sol_balance < NEW_ACCOUNT_THRESHOLD_SOL
+                                && trader_token_balance
+                                    < (parent_strat.instance.agents_keep_tokens_lamports as u64)
+                            {
                                 None
                             } else {
                                 AgentState::new_from_trader(
@@ -145,9 +164,11 @@ impl SweeperStrategyStateMachine {
                                     parent_strat.strat_actions_generated_from_event.clone(),
                                     parent_strat.main_wallet.lock().await.main_wallet.clone(),
                                 )
-                                    .await
-                                    .ok()
-                                    .map(|agent_state| Arc::new(Mutex::new(agent_state.state_machine())))
+                                .await
+                                .ok()
+                                .map(|agent_state| {
+                                    Arc::new(Mutex::new(agent_state.state_machine()))
+                                })
                             }
                         } else {
                             None
@@ -186,16 +207,18 @@ impl SweeperStrategyStateMachine {
                     },
                 ]
             } else {
-                vec![
-                    SolanaTransferActionPayload {
-                        asset: Asset::Sol,
-                        receiver,
-                        amount: Amount::Max,
-                    }
-                ]
+                vec![SolanaTransferActionPayload {
+                    asset: Asset::Sol,
+                    receiver,
+                    amount: Amount::Max,
+                }]
             };
 
-            agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Transfer(transfers))).await;
+            agent
+                .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Transfer(
+                    transfers,
+                )))
+                .await;
         }
     }
 
@@ -209,11 +232,13 @@ impl SweeperStrategyStateMachine {
 
     #[action]
     async fn sell_token(&mut self) {
-        self.main_wallet.lock().await.handle(
-            &SolanaStrategyEvent::ForAgent(AgentEvent::Sell(
-                Amount::Max
-            )),
-        ).await;
+        self.main_wallet
+            .lock()
+            .await
+            .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Sell(
+                Amount::Max,
+            )))
+            .await;
     }
 
     #[state(entry_action = "sell_token")]
@@ -230,7 +255,10 @@ impl SweeperStrategyStateMachine {
     }
 
     fn on_transition(&mut self, source: &State, target: &State) {
-        info!("Sweep strategy {} transitioned from `{source:?}` to `{target:?}`", self.instance.id);
+        info!(
+            "Sweep strategy {} transitioned from `{source:?}` to `{target:?}`",
+            self.instance.id
+        );
     }
 
     fn on_dispatch(&mut self, state: StateOrSuperstate<Self>, event: &SolanaStrategyEvent) {
@@ -262,10 +290,16 @@ impl SweeperStrategyStateMachine {
         for (i, agent) in self.agents.iter().enumerate() {
             let agent = agent.lock().await;
             match agent.state() {
-                agent::State::Success { .. } => { agents_with_success += 1; }
-                agent::State::Error { msg } => { agents_with_error += 1; }
-                agent::State::Deactivated {} => { agents_with_error += 1; }
-                _ => return ExecutionStatus::Pending
+                agent::State::Success { .. } => {
+                    agents_with_success += 1;
+                }
+                agent::State::Error { msg } => {
+                    agents_with_error += 1;
+                }
+                agent::State::Deactivated {} => {
+                    agents_with_error += 1;
+                }
+                _ => return ExecutionStatus::Pending,
             }
         }
         if agents_with_success > 0 {
@@ -275,11 +309,12 @@ impl SweeperStrategyStateMachine {
         }
     }
 
-
     pub async fn drop(&mut self) {
         let deactivate_futures = self.agents.iter_mut().map(|agent| async {
             let mut agent = agent.lock().await;
-            agent.handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Deactivate)).await
+            agent
+                .handle(&SolanaStrategyEvent::ForAgent(AgentEvent::Deactivate))
+                .await
         });
         join_all(deactivate_futures).await;
 

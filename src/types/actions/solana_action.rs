@@ -1,31 +1,31 @@
-use std::collections::BTreeMap;
-use crate::types::keys::KeypairClonable;
-use crate::types::pool::RaydiumPool;
-use crate::schema::*;
-use crate::utils;
-use chrono::{DateTime, Utc};
-use diesel::{sql_types, Associations, Identifiable, Insertable, Queryable};
-use serde_derive::{Deserialize, Serialize};
-use solana_farm_client::raydium_sdk::{LiquidityPoolKeys, MarketStateLayoutV3};
-use solana_sdk::pubkey::Pubkey;
-use std::fmt::{Debug, Display, Formatter};
-use std::io::Write;
-use diesel::pg::Pg;
-use diesel::prelude::*;
-use diesel::sql_types::*;
-use diesel::serialize::{self, IsNull, Output, ToSql};
-use diesel::deserialize::{self, FromSql};
-use diesel::result::Error::SerializationError;
-use diesel::sql_types::Jsonb;
-use diesel_derives::{AsExpression, FromSqlRow};
-use solana_sdk::signature::Signature;
-use serde_json::Value as JsonValue;
-use uuid::Uuid;
 use crate::config::constants::ACTION_EXPIRY_S;
-use crate::types::actions::{Amount, Asset};
+use crate::schema::*;
 use crate::types::actions::solana_swap_action::SolanaSwapActionPayload;
 use crate::types::actions::solana_transfer_action::SolanaTransferActionPayload;
-use crate::utils::serdealizers::{SignatureString, JsonbVec, JsonbWrapper};
+use crate::types::actions::{Amount, Asset};
+use crate::types::keys::KeypairClonable;
+use crate::types::pool::RaydiumPool;
+use crate::utils;
+use crate::utils::serdealizers::{JsonbVec, JsonbWrapper, SignatureString};
+use chrono::{DateTime, Utc};
+use diesel::deserialize::{self, FromSql};
+use diesel::pg::Pg;
+use diesel::prelude::*;
+use diesel::result::Error::SerializationError;
+use diesel::serialize::{self, IsNull, Output, ToSql};
+use diesel::sql_types::Jsonb;
+use diesel::sql_types::*;
+use diesel::{sql_types, Associations, Identifiable, Insertable, Queryable};
+use diesel_derives::{AsExpression, FromSqlRow};
+use serde_derive::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
+use solana_farm_client::raydium_sdk::{LiquidityPoolKeys, MarketStateLayoutV3};
+use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::Signature;
+use std::collections::BTreeMap;
+use std::fmt::{Debug, Display, Formatter};
+use std::io::Write;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, AsExpression)]
 #[sql_type = "diesel::sql_types::Jsonb"]
@@ -115,11 +115,7 @@ impl Display for SolanaAction {
                     )?;
                 }
                 SolanaActionPayload::SolanaTransferActionPayload(action) => {
-                    write!(
-                        f,
-                        "Transfer, uuid: {}, {:#?}",
-                        self.uuid, action
-                    )?;
+                    write!(f, "Transfer, uuid: {}, {:#?}", self.uuid, action)?;
                 }
             }
         }
@@ -128,10 +124,7 @@ impl Display for SolanaAction {
 }
 
 impl SolanaAction {
-    pub fn new(
-        sniper: KeypairClonable,
-        action_payload: Vec<SolanaActionPayload>,
-    ) -> Self {
+    pub fn new(sniper: KeypairClonable, action_payload: Vec<SolanaActionPayload>) -> Self {
         SolanaAction::new_with_feepayer(sniper.clone(), sniper, action_payload)
     }
 

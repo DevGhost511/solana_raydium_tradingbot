@@ -58,7 +58,7 @@ pub fn get_dirichlet_distributed_with_min_amount(
 
     // Generate proportions using Dirichlet distribution
     let proportions = Dirichlet::new(&*vec![1.0; n]).unwrap().sample(&mut rng);
-        
+
     // Distribute the remaining alpha based on the proportions
     let mut amounts: Vec<u64> = proportions
         .iter()

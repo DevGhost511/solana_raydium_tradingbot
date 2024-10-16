@@ -17,9 +17,10 @@ use crate::types::actions::SolanaAction;
 use crate::types::engine::StrategyManager;
 use crate::types::events::BotEvent;
 use crate::types::pool::{RaydiumPool, RaydiumPoolPriceUpdate};
+use crate::types::volume_strategy::VolumeStrategyInstance;
 use crate::utils::fee_metrics::FeeMetrics;
 use crate::{solana, storage, tg_bot};
-use anyhow::{Result};
+use anyhow::Result;
 use config::Map;
 use diesel::prelude::*;
 use diesel::prelude::*;
@@ -47,7 +48,6 @@ use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 use yellowstone_grpc_client::{GeyserGrpcClient, Interceptor, InterceptorXToken};
-use crate::types::volume_strategy::VolumeStrategyInstance;
 
 // app context we're going to pass around, we use nonblocking versions of the clients here
 // todo everything except the connections can be changed on the fly
@@ -174,7 +174,9 @@ impl AppContext {
     }
     pub async fn start_telegram_bot(
         &self,
-        strategy_manager: Arc<dyn StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> + Send + Sync>,
+        strategy_manager: Arc<
+            dyn StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> + Send + Sync,
+        >,
     ) -> Result<()> {
         let redis_uri = self.settings.read().await.storage.redis_uri.clone();
         let bot_config = BotConfig {

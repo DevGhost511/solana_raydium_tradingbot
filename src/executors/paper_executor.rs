@@ -1,5 +1,5 @@
 use crate::config::app_context::AppContext;
-use crate::config::constants::{ACTION_EXPIRY_S};
+use crate::config::constants::ACTION_EXPIRY_S;
 use crate::config::settings::ExecutorConfig;
 use crate::executors::execute_tx::execute_tx;
 use crate::solana::bloxroute::BloxRoute;
@@ -65,6 +65,10 @@ impl Executor<Arc<Mutex<SolanaAction>>, BotEvent> for PaperExecutor {
             action_uuid = action_guard.uuid;
         }
         sleep(std::time::Duration::from_millis(100)).await;
-        Ok(BotEvent::ExecutionResult(action_uuid, Arc::clone(&action), crate::types::events::ExecutionResult::Sent))
+        Ok(BotEvent::ExecutionResult(
+            action_uuid,
+            Arc::clone(&action),
+            crate::types::events::ExecutionResult::Sent,
+        ))
     }
 }

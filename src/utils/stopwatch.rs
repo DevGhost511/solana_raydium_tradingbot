@@ -1,6 +1,6 @@
+use crate::types::events::TickSizeMs;
 use std::time::Duration;
 use tokio::time::Instant;
-use crate::types::events::TickSizeMs;
 
 #[derive(Debug, Clone)]
 pub struct Stopwatch {

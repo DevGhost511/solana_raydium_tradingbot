@@ -1,7 +1,7 @@
 use crate::schema::*;
 use crate::types::engine::StrategyId;
-use crate::utils::keys::private_key_string_base58;
 use crate::types::volume_strategy::VolumeStrategyInstance;
+use crate::utils::keys::private_key_string_base58;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::sql_types::*;

@@ -1,9 +1,9 @@
 use crate::aggregators::period_indicators::TickBarWithPeriod;
 use crate::aggregators::tick_bar::TickBar;
 use redis::Value;
+use serde_derive::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde_derive::Serialize;
 use yata::core::{IndicatorInstanceDyn, IndicatorResult, PeriodType, Source, ValueType};
 use yata::helpers::MA;
 use yata::indicators::{

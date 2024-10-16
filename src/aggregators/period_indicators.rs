@@ -1,9 +1,9 @@
 use crate::aggregators::every_tick_indicators::EveryTickIndicators;
 use crate::aggregators::tick_bar::TickBar;
 use redis::Value;
+use serde_derive::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde_derive::Serialize;
 use yata::core::{Candle, IndicatorResult, PeriodType, ValueType};
 use yata::helpers::MA;
 use yata::indicators::{BollingerBands, RelativeStrengthIndex};

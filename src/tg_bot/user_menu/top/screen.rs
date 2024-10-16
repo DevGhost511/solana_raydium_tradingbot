@@ -38,7 +38,8 @@ pub async fn render_main_menu(
         .read()
         .await
         .tgbot
-        .as_ref().unwrap()
+        .as_ref()
+        .unwrap()
         .minimum_deposit_sol;
     let deposit_message = if current_balance < min_deposit {
         format!(
@@ -62,7 +63,8 @@ pub async fn render_main_menu(
         config
             .context
             .tg_bot
-            .as_ref().unwrap()
+            .as_ref()
+            .unwrap()
             .edit_message_text(ChatId(user.chat_id), message.id, header)
             .parse_mode(teloxide::types::ParseMode::MarkdownV2)
             .disable_web_page_preview(true)
@@ -73,7 +75,8 @@ pub async fn render_main_menu(
         config
             .context
             .tg_bot
-            .as_ref().unwrap()
+            .as_ref()
+            .unwrap()
             .send_message(ChatId(user.chat_id), header)
             .parse_mode(teloxide::types::ParseMode::MarkdownV2)
             .disable_web_page_preview(true)

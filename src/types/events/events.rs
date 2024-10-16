@@ -1,12 +1,17 @@
 use crate::aggregators::every_tick_indicators::{EveryTickIndicators, EveryTickIndicatorsValue};
 use crate::aggregators::period_indicators::{TickBarValue, TickBarWithPeriod};
+use crate::collectors::tx_stream::types::AccountPretty;
 use crate::schema::*;
 use crate::types::actions::SolanaAction;
 use crate::types::pool::{RaydiumPool, RaydiumPoolPriceUpdate, RaydiumSwapEvent};
-use crate::collectors::tx_stream::types::AccountPretty;
 use crate::utils::serdealizers::JsonbWrapper;
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
+use diesel::pg::Pg;
+use diesel::prelude::*;
+use diesel::sql_types::*;
 use diesel::Insertable;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use solana_farm_client::raydium_sdk::{
     get_associated_authority, LiquidityPoolKeys, LiquidityStateV4,
@@ -19,8 +24,6 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
-use anyhow::anyhow;
-use serde::ser::SerializeStruct;
 use strum_macros::Display;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -29,9 +32,6 @@ use uuid::Uuid;
 use yata::core::{IndicatorResult, PeriodType, ValueType};
 use yata::methods::TEMA;
 use yata::prelude::Candle;
-use diesel::pg::Pg;
-use diesel::prelude::*;
-use diesel::sql_types::*;
 
 /// Convenience enum containing all the events that can be emitted by collectors.
 type TokenBurned = u64;
@@ -64,7 +64,6 @@ pub struct BarEvent {
     pub period: PeriodType,
     pub bar: Candle,
 }
-
 
 //todo todo move that to tailored Error types
 #[derive(Error, Debug, Clone, Serialize)]
@@ -110,7 +109,6 @@ pub enum BotEvent {
     ExecutionResult(Uuid, Arc<Mutex<SolanaAction>>, ExecutionResult),
     SystemEvent(SystemEvent),
 }
-
 
 impl Serialize for BotEvent {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

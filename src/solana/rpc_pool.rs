@@ -3,6 +3,7 @@ use crate::config::settings::{ProviderName, Rpc};
 use crate::solana::constants::{
     RAYDIUM_V4_AUTHORITY, RAYDIUM_V4_PROGRAM_ID, RAYDIUM_V4_PROGRAM_ID_PUBKEY, WSOL_MINT_PUBKEY,
 };
+use crate::solana::AccountError;
 use crate::types::pool::{RaydiumPool, RaydiumPoolPriceUpdate};
 use crate::utils::decimals;
 use anyhow::{anyhow, bail, Error, Result};
@@ -20,9 +21,6 @@ use solana_client::rpc_config::{
     RpcSendTransactionConfig, RpcSimulateTransactionConfig, RpcTransactionConfig,
 };
 use solana_client::rpc_response::Response;
-use spl_token::solana_program::program_option::COption;
-use spl_token::solana_program::program_pack::Pack;
-use spl_token::state::Mint;
 use solana_farm_client::raydium_sdk::LiquidityStateV4;
 use solana_sdk::account::Account;
 use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
@@ -32,6 +30,9 @@ use solana_sdk::transaction::Transaction;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding};
 use spl_associated_token_account::get_associated_token_address;
 use spl_memo::solana_program::clock::Slot;
+use spl_token::solana_program::program_option::COption;
+use spl_token::solana_program::program_pack::Pack;
+use spl_token::state::Mint;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
@@ -43,7 +44,6 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, instrument};
-use crate::solana::AccountError;
 
 #[derive(Default, Clone)]
 pub struct RpcClientPool {
@@ -90,7 +90,7 @@ impl RpcClientPool {
     ) -> Result<T>
     where
         F: Fn(Arc<RpcClient>) -> Fut + Send + 'static,
-        Fut: Future<Output=std::result::Result<T, E>> + Send,
+        Fut: Future<Output = std::result::Result<T, E>> + Send,
         T: Send + 'static,
         E: Into<Error> + std::fmt::Display + Send + 'static,
     {
@@ -101,7 +101,9 @@ impl RpcClientPool {
                 Err(e) => {
                     // todo retry on other providers only if there's a communication error
                     trace!("Error executing method on {}: {}", provider_name, e);
-                    if e.to_string().contains("AccountNotFound") || e.to_string().contains("Account not found") {
+                    if e.to_string().contains("AccountNotFound")
+                        || e.to_string().contains("Account not found")
+                    {
                         // if it's not found, no need to try other providers
                         bail!(AccountError::AccountNotFound)
                     } else {
@@ -119,7 +121,7 @@ impl RpcClientPool {
     ) -> Result<T>
     where
         F: Fn(Arc<RpcClient>) -> Fut + Send + Sync + Clone + 'static,
-        Fut: std::future::Future<Output=std::result::Result<T, E>> + Send + 'static,
+        Fut: std::future::Future<Output = std::result::Result<T, E>> + Send + 'static,
         T: Send + 'static,
         E: Into<Error> + std::fmt::Display + Send + 'static,
     {
@@ -135,7 +137,7 @@ impl RpcClientPool {
 
         match select_ok(tasks).await {
             Ok((result, _)) => Ok(result.map_err(Into::into)?),
-            Err(e) => bail!("Failed to execute method on all providers: {:?}",e),
+            Err(e) => bail!("Failed to execute method on all providers: {:?}", e),
         }
     }
 
@@ -145,7 +147,7 @@ impl RpcClientPool {
             let pubkey = Arc::clone(&pubkey);
             async move { client.get_balance(&pubkey).await }
         })
-            .await
+        .await
     }
 
     pub async fn get_balance_ui(&self, pubkey: &Pubkey) -> Result<f64> {
@@ -159,7 +161,7 @@ impl RpcClientPool {
             let pubkey = Arc::clone(&pubkey);
             async move { client.get_account(&pubkey).await }
         })
-            .await
+        .await
     }
 
     pub async fn get_account_data(&self, pubkey: &Pubkey) -> Result<Vec<u8>> {
@@ -168,7 +170,7 @@ impl RpcClientPool {
             let pubkey = Arc::clone(&pubkey);
             async move { client.get_account_data(&pubkey).await }
         })
-            .await
+        .await
     }
 
     pub async fn get_token_account_balance_ui(&self, pubkey: &Pubkey) -> Result<UiTokenAmount> {
@@ -177,7 +179,7 @@ impl RpcClientPool {
             let pubkey = Arc::clone(&pubkey);
             async move { client.get_token_account_balance(&pubkey).await }
         })
-            .await
+        .await
     }
 
     pub async fn get_token_balance(
@@ -214,7 +216,7 @@ impl RpcClientPool {
                     .await
             }
         })
-            .await
+        .await
     }
 
     pub async fn account_exists(&self, pubkey: &Pubkey) -> Result<bool> {
@@ -238,7 +240,9 @@ impl RpcClientPool {
                             }
                             _ => {
                                 // todo works, but this is awful, should be error type but TransactionError::AccountNotFound doenst' work, fix this later
-                                if e.to_string().contains("AccountNotFound") || e.to_string().contains("Account not found") {
+                                if e.to_string().contains("AccountNotFound")
+                                    || e.to_string().contains("Account not found")
+                                {
                                     trace!("text analysis: Account not found: {:?}", pubkey);
                                     Ok(false)
                                 } else {
@@ -250,9 +254,8 @@ impl RpcClientPool {
                 }
             }
         })
-            .await
+        .await
     }
-
 
     pub async fn simulate_tx(
         &self,
@@ -496,7 +499,7 @@ impl RpcClientPool {
             let signature = signature.clone();
             async move { client.get_signature_status(&signature).await }
         })
-            .await
+        .await
     }
 
     pub async fn get_median_recent_prioritization_fees(&self) -> Result<u64> {
@@ -534,35 +537,31 @@ impl RpcClientPool {
         Ok(fee)
     }
 
-
     pub async fn is_freezable(&self, token_mint: &Pubkey) -> Result<bool> {
         let account_data = self.get_account_data(token_mint).await?;
-        let mint =
-            Mint::unpack(&account_data).map_err(|e| anyhow!("Failed to unpack Mint data: {:?}", e))?;
+        let mint = Mint::unpack(&account_data)
+            .map_err(|e| anyhow!("Failed to unpack Mint data: {:?}", e))?;
         Ok(match mint.freeze_authority {
             COption::Some(authority) => authority != Pubkey::default(),
             COption::None => false,
         })
     }
-
 
     pub async fn is_freezable_by_account_data(&self, account_data: &[u8]) -> Result<bool> {
-        let mint =
-            Mint::unpack(&account_data).map_err(|e| anyhow!("Failed to unpack Mint data: {:?}", e))?;
+        let mint = Mint::unpack(&account_data)
+            .map_err(|e| anyhow!("Failed to unpack Mint data: {:?}", e))?;
         Ok(match mint.freeze_authority {
             COption::Some(authority) => authority != Pubkey::default(),
             COption::None => false,
         })
     }
-    
+
     pub async fn is_mintable_by_account_data(&self, account_data: &[u8]) -> Result<bool> {
-        let mint =
-            Mint::unpack(&account_data).map_err(|e| anyhow!("Failed to unpack Mint data: {:?}", e))?;
+        let mint = Mint::unpack(&account_data)
+            .map_err(|e| anyhow!("Failed to unpack Mint data: {:?}", e))?;
         Ok(match mint.mint_authority {
             COption::Some(authority) => authority != Pubkey::default(),
             COption::None => false,
         })
     }
-
-
 }

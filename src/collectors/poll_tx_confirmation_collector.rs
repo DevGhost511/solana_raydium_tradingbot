@@ -81,9 +81,9 @@ impl Collector<BotEvent> for PollRpcForTxConfirmationsCollector {
                                                 }
                                                 Err(err) => {
                                                     error!(
-                                                    "Tx failed {:?} error: {:?}",
-                                                    &signature_str, &err
-                                                );
+                                                        "Tx failed {:?} error: {:?}",
+                                                        &signature_str, &err
+                                                    );
                                                     Some(err.clone())
                                                 }
                                             },

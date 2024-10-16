@@ -63,7 +63,11 @@ pub async fn top_menu_callback_handler(
                         }
                         BUTTON_STOP_STRATEGIES => {
                             let user_strategies = stream::iter(
-                                config.strategy_manager.get_active_strategies().await.values(),
+                                config
+                                    .strategy_manager
+                                    .get_active_strategies()
+                                    .await
+                                    .values(),
                             )
                             .filter_map(|strategy_mutex| async move {
                                 let strategy = strategy_mutex.lock().await;

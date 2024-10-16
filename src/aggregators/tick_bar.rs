@@ -1,8 +1,8 @@
 // candle.rs
 
+use serde_derive::Serialize;
 use std::collections::HashMap;
 use std::ops::Add;
-use serde_derive::Serialize;
 use yata::core::{PeriodType, ValueType};
 use yata::prelude::Candle;
 

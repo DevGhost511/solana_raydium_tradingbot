@@ -60,7 +60,8 @@ pub async fn render_strategies_menu(
     config
         .context
         .tg_bot
-        .as_ref().unwrap()
+        .as_ref()
+        .unwrap()
         .edit_message_text(
             message.chat.id,
             message.id,

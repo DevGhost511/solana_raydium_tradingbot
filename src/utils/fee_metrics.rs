@@ -83,7 +83,10 @@ impl FeeMetrics {
     pub(crate) fn add_fee(&mut self, fee: u64) {
         self.rolling_average.add(fee);
         self.percentile.add(fee);
-        trace!("Updated optimal 75 percentile transfer fee: {:?}", self.percentile.get_percentile(75.0).unwrap_or(0));
+        trace!(
+            "Updated optimal 75 percentile transfer fee: {:?}",
+            self.percentile.get_percentile(75.0).unwrap_or(0)
+        );
     }
 
     fn get_rolling_average(&self) -> u64 {

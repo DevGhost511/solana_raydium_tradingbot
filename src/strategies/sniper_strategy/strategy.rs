@@ -3,14 +3,16 @@ use crate::config::settings::StrategyConfig;
 use crate::schema::volumestrategyinstances::completed_at;
 use crate::schema::volumestrategyinstances::dsl::volumestrategyinstances;
 use crate::schema::*;
+use crate::strategies::{SniperStrategyStateMachine, SweeperStrategyStateMachine};
+use crate::tg_bot::sniping_strategy_config_args::SnipingStrategyConfigArgs;
 use crate::types::actions::{SolanaAction, SwapMethod};
+use crate::types::bot_user::Trader;
 use crate::types::engine::{Strategy, StrategyStatus};
 use crate::types::events::{BlockchainEvent, BotEvent};
 use crate::types::keys::KeypairClonable;
 use crate::types::pool::{RaydiumPool, RaydiumPoolPriceUpdate};
-use crate::types::bot_user::{Trader};
-use crate::types::volume_strategy::VolumeStrategyInstance;
 use crate::types::sniping_strategy::SnipingStrategyInstance;
+use crate::types::volume_strategy::VolumeStrategyInstance;
 use crate::utils::helpers::{max_time, zero_time};
 use crate::{solana, storage, utils};
 use anyhow::Result;
@@ -22,6 +24,8 @@ use diesel::sql_types::*;
 use diesel_derives::{Associations, Identifiable, Insertable, Queryable, Selectable};
 use futures::stream::{self, StreamExt};
 use futures_util::future::join_all;
+use log::trace;
+use maplit::hashmap;
 use once_cell::sync::Lazy;
 use serde_derive::{Deserialize, Serialize};
 use solana_client::rpc_client::RpcClient;
@@ -30,19 +34,15 @@ use solana_sdk::signature::{Keypair, Signer};
 use statig::awaitable::{InitializedStateMachine, IntoStateMachineExt, StateMachine};
 use std::any::Any;
 use std::collections::{BTreeMap, VecDeque};
+use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{env, mem};
-use std::fmt::{Debug, Formatter};
-use log::trace;
-use maplit::hashmap;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tracing::field::debug;
 use tracing::{debug, error, info, instrument, Event};
-use crate::strategies::{SniperStrategyStateMachine, SweeperStrategyStateMachine};
-use crate::tg_bot::sniping_strategy_config_args::SnipingStrategyConfigArgs;
 
 // strategy basically manages a collection of position state machines,
 // this struct is just a message filter
@@ -54,9 +54,11 @@ pub struct SniperStrategy {
 
 impl Debug for SniperStrategy {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SniperStrategy,\n config: {:#?},\n state: {:?}",
-               self.state_machine.instance,
-               self.state_machine.state()
+        write!(
+            f,
+            "SniperStrategy,\n config: {:#?},\n state: {:?}",
+            self.state_machine.instance,
+            self.state_machine.state()
         )
     }
 }
@@ -70,9 +72,7 @@ impl SniperStrategy {
         let state_machine = SniperStrategyStateMachine::new(context, strategy_config.clone())
             .await?
             .state_machine();
-        Ok(Self {
-            state_machine,
-        })
+        Ok(Self { state_machine })
     }
 
     pub fn get_user_id(&self) -> i32 {
@@ -113,7 +113,6 @@ impl Strategy<BotEvent, Arc<Mutex<SolanaAction>>> for SniperStrategy {
             vec![]
         }
     }
-
 
     fn as_any(&self) -> &dyn Any {
         self

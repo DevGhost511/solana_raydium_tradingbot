@@ -1,20 +1,26 @@
+use crate::collectors::tx_stream::types::TransactionPretty;
 use crate::solana::constants::{RAYDIUM_V4_PROGRAM_ID, WSOL_MINT_ADDRESS};
 use crate::types::pool::{RaydiumPool, RaydiumPoolPriceUpdate};
+use crate::utils::decimals::{lamports_to_sol, tokens_to_ui_amount_with_decimals_f64};
+use regex::Regex;
 use serde_json::Value;
+use solana_account_decoder::parse_token::token_amount_to_ui_amount;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::transaction::TransactionVersion;
 use solana_transaction_status::option_serializer::OptionSerializer;
 use solana_transaction_status::parse_instruction::ParsedInstruction;
-use solana_transaction_status::{Encodable, EncodableWithMeta, EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionStatusMeta, UiInnerInstructions, UiInstruction, UiMessage, UiParsedInstruction, UiTransactionEncoding, UiTransactionTokenBalance};
-use std::str::FromStr;
-use regex::Regex;
-use solana_account_decoder::parse_token::token_amount_to_ui_amount;
-use solana_sdk::transaction::TransactionVersion;
+use solana_transaction_status::{
+    Encodable, EncodableWithMeta, EncodedTransaction, EncodedTransactionWithStatusMeta,
+    TransactionStatusMeta, UiInnerInstructions, UiInstruction, UiMessage, UiParsedInstruction,
+    UiTransactionEncoding, UiTransactionTokenBalance,
+};
 use spl_token::solana_program::message::v0::LoadedAddresses;
+use std::str::FromStr;
 use tracing::{debug, error, info, trace};
-use yellowstone_grpc_proto::convert_from::{create_loaded_addresses, create_meta_inner_instructions, create_token_balances, create_tx_meta};
+use yellowstone_grpc_proto::convert_from::{
+    create_loaded_addresses, create_meta_inner_instructions, create_token_balances, create_tx_meta,
+};
 use yellowstone_grpc_proto::prelude::SubscribeUpdateTransaction;
-use crate::collectors::tx_stream::types::TransactionPretty;
-use crate::utils::decimals::{lamports_to_sol, tokens_to_ui_amount_with_decimals_f64};
 // this only works with  EncodedTransaction::Json variant
 
 pub(crate) fn extract_pool_from_init_tx(
@@ -44,51 +50,61 @@ pub(crate) fn extract_pool_from_init_tx(
             return None;
         }
     }?;
-    debug!("New Pool deployment signature detected: {:?}", tx_pretty.signature);
+    debug!(
+        "New Pool deployment signature detected: {:?}",
+        tx_pretty.signature
+    );
     let mut transaction_clone = transaction.clone();
     let json = match &transaction_clone.transaction {
         EncodedTransaction::Json(t) => Some(t),
         _ => {
-            trace!("transaction: {:#?}",transaction_clone);
+            trace!("transaction: {:#?}", transaction_clone);
             let t = transaction_clone.transaction.decode();
             let ui_meta = transaction_clone.meta?;
             let meta = tx_update.clone().transaction?.meta?;
             let tx_meta = create_tx_meta(meta).ok()?;
-            let encoded_tx = t
-                .map(|t| t.encode_with_meta(UiTransactionEncoding::JsonParsed, &tx_meta));
+            let encoded_tx =
+                t.map(|t| t.encode_with_meta(UiTransactionEncoding::JsonParsed, &tx_meta));
             transaction_clone.transaction = encoded_tx?;
             match &transaction_clone.transaction {
                 EncodedTransaction::Json(t) => Some(t),
-                _ => None
+                _ => None,
             }
         }
     }?;
-
 
     let message = match &json.message {
         UiMessage::Parsed(m) => Some(m),
         _ => {
-            error!("UiMessage::Parsed not found tx: {:#?}",tx_update);
+            error!("UiMessage::Parsed not found tx: {:#?}", tx_update);
             None
         }
     }?;
 
-    trace!("signature {:?}, tx: {:?}, message: {:?}",tx_pretty.signature, json, message);
+    trace!(
+        "signature {:?}, tx: {:?}, message: {:?}",
+        tx_pretty.signature,
+        json,
+        message
+    );
 
-    let initialize_tx = message.instructions.iter()
-        .find(|i| {
-            if let UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(instruction_parsed)) = i {
-                instruction_parsed.program_id == RAYDIUM_V4_PROGRAM_ID
-            } else {
-                false
-            }
-        })?;
+    let initialize_tx = message.instructions.iter().find(|i| {
+        if let UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(instruction_parsed)) = i
+        {
+            instruction_parsed.program_id == RAYDIUM_V4_PROGRAM_ID
+        } else {
+            false
+        }
+    })?;
 
-    let accounts = if let UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(instruction_parsed)) = initialize_tx {
-        &instruction_parsed.accounts
-    } else {
-        return None;
-    };
+    let accounts =
+        if let UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(instruction_parsed)) =
+            initialize_tx
+        {
+            &instruction_parsed.accounts
+        } else {
+            return None;
+        };
 
     let mut base_mint = Pubkey::from_str(&accounts[8]).unwrap();
     let mut base_vault = Pubkey::from_str(&accounts[10]).unwrap();
@@ -110,9 +126,9 @@ pub(crate) fn extract_pool_from_init_tx(
         (initialize_log.2, initialize_log.3)
     };
 
-
     let pre_token_balance = extract_token_balance_from_pre_or_post_token_balances(
-        &transaction.meta.unwrap().pre_token_balances, base_mint.to_string().as_str(),
+        &transaction.meta.unwrap().pre_token_balances,
+        base_mint.to_string().as_str(),
     )?;
 
     let base_reserve = tokens_to_ui_amount_with_decimals_f64(
@@ -213,12 +229,12 @@ fn find_transfer_instruction_in_inner_instructions_by_destination(
                         let data: &Value = &instruct.parsed;
                         if extract_type_field(data).unwrap() == "transfer".to_string()
                             && data
-                            .get("info")
-                            .and_then(|info| info.get("destination"))
-                            .and_then(Value::as_str)
-                            .map(String::from)
-                            .unwrap()
-                            == *destination_account
+                                .get("info")
+                                .and_then(|info| info.get("destination"))
+                                .and_then(Value::as_str)
+                                .map(String::from)
+                                .unwrap()
+                                == *destination_account
                             && instruct.program_id == *RAYDIUM_V4_PROGRAM_ID
                         {
                             return Some(instruct.clone());

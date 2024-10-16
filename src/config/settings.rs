@@ -1,3 +1,4 @@
+use crate::tg_bot::sniping_strategy_config_args::SnipingStrategyConfigArgs;
 use crate::tg_bot::volume_strategy_config_args::VolumeStrategyConfigArgs;
 use crate::types::volume_strategy::VolumeStrategyInstance;
 use config::{Config, ConfigError, File, Map};
@@ -8,7 +9,6 @@ use spl_associated_token_account::solana_program::example_mocks::solana_sdk::sig
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use yata::core::PeriodType;
-use crate::tg_bot::sniping_strategy_config_args::SnipingStrategyConfigArgs;
 
 pub type ProviderName = String;
 

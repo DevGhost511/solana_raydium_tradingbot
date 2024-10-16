@@ -1,7 +1,7 @@
-use std::fmt::Debug;
 use diesel::deserialize::FromSql;
 use diesel::pg::{Pg, PgValue};
 use diesel::serialize::{IsNull, Output, ToSql};
+use diesel::sql_types::Jsonb;
 use diesel::{deserialize, serialize, sql_types, Insertable};
 use diesel_derives::{AsExpression, FromSqlRow};
 use futures_util::TryFutureExt;
@@ -9,9 +9,9 @@ use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use solana_sdk::bs58;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
+use std::fmt::Debug;
 use std::io::Write;
 use std::str::FromStr;
-use diesel::sql_types::Jsonb;
 
 #[derive(Debug, FromSqlRow, AsExpression)]
 #[diesel(check_for_backend(Pg))]
@@ -57,12 +57,7 @@ impl FromSql<sql_types::Text, Pg> for PubkeyString {
     fn from_sql(bytes: PgValue<'_>) -> deserialize::Result<Self> {
         let s = std::str::from_utf8(bytes.as_bytes())?;
         Ok(PubkeyString(
-            bs58::decode(s)
-                .into_vec()
-                ?
-                .as_slice()
-                .try_into()
-                .unwrap(),
+            bs58::decode(s).into_vec()?.as_slice().try_into().unwrap(),
         ))
     }
 }
@@ -132,7 +127,6 @@ where
     }
 }
 
-
 #[derive(Debug, Clone, FromSqlRow, AsExpression)]
 #[diesel(sql_type = Jsonb)]
 pub struct JsonbVec<T>(pub Vec<T>);
@@ -169,7 +163,6 @@ impl<T> ToSql<Jsonb, Pg> for JsonbWrapper<T>
 where
     T: Serialize + Debug,
 {
-
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
         let value = serde_json::to_value(&self.0)?;
         out.write_all(&[1])?; // Write JSONB version (always 1 for now)

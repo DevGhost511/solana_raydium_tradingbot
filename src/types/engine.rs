@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use tokio_stream::StreamExt;
 
 /// A stream of events emitted by a [Collector](Collector).
-pub type EventStream<'a, E> = Pin<Box<dyn Stream<Item=E> + Send + 'a>>;
+pub type EventStream<'a, E> = Pin<Box<dyn Stream<Item = E> + Send + 'a>>;
 pub type StrategyId = i32;
 
 #[derive(Debug, PartialEq, Eq, Clone)]

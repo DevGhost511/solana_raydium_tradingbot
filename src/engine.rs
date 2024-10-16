@@ -1,7 +1,10 @@
-use crate::config::constants::{ENGINE_MESSAGE_CHANNEL_CAPACITY, NEW_STRATEGY_POLLING_FREQUENCY_MS};
+use crate::config::constants::{
+    ENGINE_MESSAGE_CHANNEL_CAPACITY, NEW_STRATEGY_POLLING_FREQUENCY_MS,
+};
 use crate::types::engine::{
     Aggregator, Collector, Executor, Strategy, StrategyId, StrategyManager,
 };
+use crate::types::events::{BotEvent, ExecutionError, ExecutionResult};
 use futures::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,7 +13,6 @@ use tokio::sync::Mutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_stream::StreamExt;
 use tracing::{error, info};
-use crate::types::events::{BotEvent, ExecutionError, ExecutionResult};
 
 /// The main engine. This struct is responsible for orchestrating the
 /// data flow between collectors, strategies, and executors.
@@ -98,16 +100,13 @@ where
                         let executor = executor.clone();
                         tokio::spawn(async move {
                             match executor.execute(action).await {
-                                Ok(event) => {
-                                    match event_sender.send(event) {
-                                        Ok(_) => {}
-                                        Err(e) => error!("error sending event: {}", e),
-                                    }
-                                }
+                                Ok(event) => match event_sender.send(event) {
+                                    Ok(_) => {}
+                                    Err(e) => error!("error sending event: {}", e),
+                                },
                                 Err(e) => error!("error executing action: {}", e),
                             }
-                        }
-                        );
+                        });
                     }
                 }
             });
@@ -121,15 +120,16 @@ where
         let action_sender = action_sender.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = strategy_manager.run_strategy_manager(event_sender_clone, action_sender).await {
+            if let Err(e) = strategy_manager
+                .run_strategy_manager(event_sender_clone, action_sender)
+                .await
+            {
                 error!("Strategy manager error: {:?}", e);
             }
         });
         // self.strategy_manager.sync_state().await?;
 
-
         for mut aggregator in self.aggregators {
-
             let mut event_receiver = event_sender.subscribe();
             let event_sender = event_sender.clone();
             set.spawn(async move {
@@ -149,7 +149,6 @@ where
                 }
             });
         }
-
 
         // Spawn collectors in separate threads.
         for collector in self.collectors {

@@ -1,24 +1,31 @@
-use std::collections::{BTreeMap, HashMap};
 use crate::config::app_context::AppContext;
-use crate::config::constants::{BASE_TX_FEE_SOL, MAX_TRANSFERS_IN_ONE_TX, NEW_ACCOUNT_THRESHOLD_SOL, RAYDIUM_SWAP_FEE, RENT_EXEMPTION_THRESHOLD_SOL};
+use crate::config::constants::{
+    BASE_TX_FEE_SOL, MAX_TRANSFERS_IN_ONE_TX, NEW_ACCOUNT_THRESHOLD_SOL, RAYDIUM_SWAP_FEE,
+    RENT_EXEMPTION_THRESHOLD_SOL,
+};
 use crate::schema::traders;
-use crate::schema::traders::strategy_instance_id;
 use crate::schema::traders::dsl::traders as traders_dsl;
+use crate::schema::traders::strategy_instance_id;
+use crate::schema::users::dsl::users;
+use crate::schema::users::{chat_id, id as users_id};
 use crate::schema::volumestrategyinstances;
 use crate::schema::volumestrategyinstances::dsl::volumestrategyinstances as volumestrategyinstances_dsl;
 use crate::schema::volumestrategyinstances::id as volumestrategyinstances_id;
-use crate::schema::users::dsl::users;
-use crate::schema::users::{chat_id, id as users_id};
-use crate::types::actions::{Amount, Asset, SolanaAction, SolanaActionPayload, SolanaTransferActionPayload};
+use crate::solana;
+use crate::strategies::events::{AgentEvent, SolanaStrategyEvent};
+use crate::strategies::sniper_strategy::agent::{self, SniperAgentState};
+use crate::tg_bot::sniping_strategy_config_args::SnipingStrategyConfigArgs;
+use crate::types::actions::{
+    Amount, Asset, SolanaAction, SolanaActionPayload, SolanaTransferActionPayload,
+};
+use crate::types::bot_user::{BotUser, Trader};
 use crate::types::events::{BlockchainEvent, BotEvent, TickSizeMs};
 use crate::types::keys::KeypairClonable;
 use crate::types::pool::RaydiumPool;
-use crate::types::bot_user::{BotUser, Trader};
-use crate::types::volume_strategy::VolumeStrategyInstance;
 use crate::types::sniping_strategy::SnipingStrategyInstance;
+use crate::types::volume_strategy::VolumeStrategyInstance;
+use crate::utils::decimals::sol_to_lamports;
 use crate::utils::Stopwatch;
-use crate::strategies::sniper_strategy::agent::{self, SniperAgentState};
-use crate::strategies::events::{AgentEvent, SolanaStrategyEvent};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -30,17 +37,15 @@ use log::{debug, error};
 use solana_sdk::pubkey::Pubkey;
 use spl_associated_token_account::get_associated_token_address;
 use statig::awaitable::{prelude::*, StateMachine};
+use std::collections::{BTreeMap, HashMap};
+use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
 use std::sync::{Arc, Mutex as StdMutex};
 use teloxide::prelude::{ChatId, Requester};
 use tokio::sync::{Mutex as TokioMutex, Mutex};
 use tokio::time::sleep;
-use tracing::{info, trace, warn};
-use std::fmt::{Debug, Formatter};
-use std::ops::Deref;
 use tracing::field::debug;
-use crate::solana;
-use crate::tg_bot::sniping_strategy_config_args::SnipingStrategyConfigArgs;
-use crate::utils::decimals::sol_to_lamports;
+use tracing::{info, trace, warn};
 
 #[derive(Default, Clone)]
 pub enum ExecutionStatus {
@@ -90,7 +95,9 @@ impl SniperStrategyStateMachine {
     async fn running(&mut self, event: &SolanaStrategyEvent) -> Response<State> {
         // once we got a new pool, we're spamming agent with it, that's it
         match event {
-            SolanaStrategyEvent::Original(BotEvent::BlockchainEvent(BlockchainEvent::RaydiumNewPoolEvent(new_pool, price))) => {
+            SolanaStrategyEvent::Original(BotEvent::BlockchainEvent(
+                BlockchainEvent::RaydiumNewPoolEvent(new_pool, price),
+            )) => {
                 if self.pool_snipes.lock().await.contains_key(&new_pool.id) {
                     warn!("Pool already captured, skipping");
                     return Handled;
@@ -101,13 +108,31 @@ impl SniperStrategyStateMachine {
                     return Handled;
                 }
 
-                let account_data = self.context.rpc_pool.get_account_data(&new_pool.base_mint).await.unwrap();
-                if self.context.rpc_pool.is_freezable_by_account_data(&account_data).await.unwrap() {
+                let account_data = self
+                    .context
+                    .rpc_pool
+                    .get_account_data(&new_pool.base_mint)
+                    .await
+                    .unwrap();
+                if self
+                    .context
+                    .rpc_pool
+                    .is_freezable_by_account_data(&account_data)
+                    .await
+                    .unwrap()
+                {
                     warn!("Pool is freezable, skipping");
                     return Handled;
                 }
 
-                if self.instance.skip_mintable && self.context.rpc_pool.is_mintable_by_account_data(&account_data).await.unwrap() {
+                if self.instance.skip_mintable
+                    && self
+                        .context
+                        .rpc_pool
+                        .is_mintable_by_account_data(&account_data)
+                        .await
+                        .unwrap()
+                {
                     warn!("Pool is mintable, skipping");
                     return Handled;
                 }
@@ -120,10 +145,16 @@ impl SniperStrategyStateMachine {
                 // we assuming that all those Done or Errorneous snipes are already removed
                 let concurrent_snipes = self.pool_snipes.lock().await.len();
                 if concurrent_snipes >= self.instance.max_simultaneous_snipes as usize {
-                    warn!("Max simultaneous snipes {} reached, skipping token {:?}", concurrent_snipes, new_pool.base_mint);
+                    warn!(
+                        "Max simultaneous snipes {} reached, skipping token {:?}",
+                        concurrent_snipes, new_pool.base_mint
+                    );
                     return Handled;
                 } else {
-                    debug!("{} concurrent snipes in progress, the limit is {}", concurrent_snipes, self.instance.max_simultaneous_snipes);
+                    debug!(
+                        "{} concurrent snipes in progress, the limit is {}",
+                        concurrent_snipes, self.instance.max_simultaneous_snipes
+                    );
                 }
 
                 // starting a snipe
@@ -145,16 +176,17 @@ impl SniperStrategyStateMachine {
                             sniper_wallet.clone(),
                             instance,
                             actions,
-                            initial_price_update)
-                            .await
-                            .unwrap()
-                            .state_machine(),
+                            initial_price_update,
+                        )
+                        .await
+                        .unwrap()
+                        .state_machine(),
                     ));
                     pool_snipes.insert(pool_pubkey, pool_snipe);
                 });
                 Super
             }
-            _ => { Super }
+            _ => Super,
         }
         // Transition(State::done())
     }
@@ -168,7 +200,10 @@ impl SniperStrategyStateMachine {
     }
 
     fn on_transition(&mut self, source: &State, target: &State) {
-        info!("Sniper strategy {} transitioned from `{source:?}` to `{target:?}`", self.instance.id);
+        info!(
+            "Sniper strategy {} transitioned from `{source:?}` to `{target:?}`",
+            self.instance.id
+        );
     }
 
     fn on_dispatch(&mut self, state: StateOrSuperstate<Self>, event: &SolanaStrategyEvent) {
@@ -178,7 +213,9 @@ impl SniperStrategyStateMachine {
                 let event = event.clone();
 
                 tokio::spawn(async move {
-                    let futures: Vec<_> = pool_snipes_arc.lock().await
+                    let futures: Vec<_> = pool_snipes_arc
+                        .lock()
+                        .await
                         .values()
                         .map(|sniper| {
                             let sniper = Arc::clone(sniper);
@@ -191,7 +228,6 @@ impl SniperStrategyStateMachine {
                         .collect();
                     join_all(futures).await;
 
-
                     // Now, filter out the snipers that are done or in error state and remove them
                     let pool_snipes = Arc::clone(&pool_snipes_arc);
                     let pubkeys_to_remove: Vec<Pubkey> = {
@@ -201,7 +237,9 @@ impl SniperStrategyStateMachine {
                                 let sniper = Arc::clone(sniper);
                                 async move {
                                     match sniper.lock().await.state() {
-                                        agent::State::Done { .. } | agent::State::Error { .. } => Some(*pubkey),
+                                        agent::State::Done { .. } | agent::State::Error { .. } => {
+                                            Some(*pubkey)
+                                        }
                                         _ => None,
                                     }
                                 }
@@ -219,7 +257,6 @@ impl SniperStrategyStateMachine {
                             }
                         })
                         .await;
-                    
                 });
             }
             StateOrSuperstate::Superstate(_) => {}

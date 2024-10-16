@@ -1,24 +1,16 @@
-use std::fmt::{Debug, Formatter};
+use crate::schema::*;
+use crate::types::bot_user::BotUser;
+use crate::types::engine::StrategyId;
+use crate::types::volume_strategy::{NewVolumeStrategyInstance, VolumeStrategyInstance};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::sql_types::*;
-use serde_derive::{Deserialize, Serialize};
 use diesel_derives::{Associations, Identifiable, Insertable, Queryable, Selectable};
+use serde_derive::{Deserialize, Serialize};
 use solana_sdk::signature::{Keypair, Signer};
-use crate::schema::*;
-use crate::types::engine::StrategyId;
-use crate::types::bot_user::{BotUser};
-use crate::types::volume_strategy::{NewVolumeStrategyInstance, VolumeStrategyInstance};
+use std::fmt::{Debug, Formatter};
 
-#[derive(
-    Default,
-    Clone,
-    Serialize,
-    Deserialize,
-    Queryable,
-    Selectable,
-    Associations,
-)]
+#[derive(Default, Clone, Serialize, Deserialize, Queryable, Selectable, Associations)]
 #[diesel(check_for_backend(Pg))]
 #[serde(rename_all = "lowercase")]
 #[belongs_to(BotUser, foreign_key = "user_id")]
@@ -80,7 +72,6 @@ pub struct NewSnipingStrategyInstance {
     pub buy_delay_ms: i64,
     pub skip_if_price_drops_percent: f64,
 }
-
 
 impl From<&NewSnipingStrategyInstance> for SnipingStrategyInstance {
     fn from(new: &NewSnipingStrategyInstance) -> Self {

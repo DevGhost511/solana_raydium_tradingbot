@@ -5,28 +5,33 @@ use crate::tg_bot::helpers::buttons::ButtonMenu;
 use crate::tg_bot::user_menu::top::handler::{
     BUTTON_BACK_TO_THE_MAIN_MENU, BUTTON_CONFIGURE_STRATEGY, BUTTON_STOP_STRATEGIES,
 };
-use crate::types::engine::StrategyManager;
 use crate::types::bot_user::BotUser;
+use crate::types::engine::StrategyManager;
 use futures::stream::{self, StreamExt};
 use once_cell::sync::Lazy;
 
 pub async fn get_menu_top(context: &BotConfig, user: &BotUser) -> ButtonMenu {
-    let user_strategies =
-        stream::iter(context.strategy_manager.get_active_strategies().await.values())
-            .filter_map(|strategy_mutex| async move {
-                let strategy = strategy_mutex.lock().await;
-                if let Some(volume_strategy) = strategy.as_any().downcast_ref::<VolumeStrategy>() {
-                    if volume_strategy.get_user_id() == user.id {
-                        Some(volume_strategy.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .await;
+    let user_strategies = stream::iter(
+        context
+            .strategy_manager
+            .get_active_strategies()
+            .await
+            .values(),
+    )
+    .filter_map(|strategy_mutex| async move {
+        let strategy = strategy_mutex.lock().await;
+        if let Some(volume_strategy) = strategy.as_any().downcast_ref::<VolumeStrategy>() {
+            if volume_strategy.get_user_id() == user.id {
+                Some(volume_strategy.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    })
+    .collect::<Vec<_>>()
+    .await;
 
     let running_strategies = user_strategies.len();
 

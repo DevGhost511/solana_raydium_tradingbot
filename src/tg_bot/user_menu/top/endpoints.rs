@@ -1,7 +1,6 @@
 use crate::config::constants::{
     BASE_TX_FEE_SOL, NEW_ACCOUNT_THRESHOLD_SOL, RENT_EXEMPTION_THRESHOLD_SOL,
 };
-use crate::types::actions::{Amount, Asset, SolanaAction, SwapMethod, SolanaActionPayload, SolanaSwapActionPayload, SolanaTransferActionPayload, Balance};
 use crate::schema::traders;
 use crate::schema::traders::dsl::traders as traders_dsl;
 use crate::schema::users::chat_id;
@@ -9,12 +8,20 @@ use crate::schema::users::dsl::users;
 use crate::schema::volumestrategyinstances;
 use crate::schema::volumestrategyinstances::dsl::volumestrategyinstances as volumestrategyinstances_dsl;
 use crate::schema::volumestrategyinstances::id;
+use crate::strategies::sweeper_strategy::SweeperStrategy;
+use crate::strategies::SweeperStrategyStateMachine;
 use crate::tg_bot::bot_config::{BotConfig, HandlerResult};
 use crate::tg_bot::helpers::get_user_from_user_message;
 use crate::tg_bot::state::MyDialogue;
 use crate::tg_bot::user_menu::top::screen::render_main_menu;
-use crate::types::keys::KeypairClonable;
+use crate::types::actions::Amount::{Max, MaxAndClose};
+use crate::types::actions::{
+    Amount, Asset, Balance, SolanaAction, SolanaActionPayload, SolanaSwapActionPayload,
+    SolanaTransferActionPayload, SwapMethod,
+};
 use crate::types::bot_user::{BotUser, Trader};
+use crate::types::engine::Executor;
+use crate::types::keys::KeypairClonable;
 use crate::types::volume_strategy::VolumeStrategyInstance;
 use crate::utils::decimals::lamports_to_sol;
 use crate::utils::formatters::format_sol;
@@ -44,10 +51,6 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, error, info, trace};
 use uuid::Uuid;
-use crate::strategies::sweeper_strategy::SweeperStrategy;
-use crate::strategies::SweeperStrategyStateMachine;
-use crate::types::actions::Amount::{Max, MaxAndClose};
-use crate::types::engine::Executor;
 
 pub async fn start(
     bot: Bot,
@@ -65,11 +68,10 @@ pub async fn start(
             message.chat.id,
             "Please set a username in Telegram settings",
         )
-            .await?;
+        .await?;
     }
     Ok(())
 }
-
 
 pub async fn collect(
     bot: Bot,
@@ -96,26 +98,22 @@ pub async fn collect(
             for volume_strat in &strategies {
                 debug!(
                     "User {}, trying to collect SOL and tokens for volume strategy {}",
-                    user.id,
-                    volume_strat.id,
+                    user.id, volume_strat.id,
                 );
 
                 let strategy = SweeperStrategy::new(&config.context, &volume_strat).await?;
                 let cfg_clone = config.clone();
-                cfg_clone.strategy_manager
+                cfg_clone
+                    .strategy_manager
                     .start_strategy(Box::new(strategy))
                     .await;
             }
 
             bot.send_message(
                 message.chat.id,
-                format!(
-                    "User {}, {} collections started",
-                    user.id,
-                    strategies.len(),
-                ),
+                format!("User {}, {} collections started", user.id, strategies.len(),),
             )
-                .await?;
+            .await?;
         }
     }
 
