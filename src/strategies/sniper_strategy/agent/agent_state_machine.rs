@@ -230,7 +230,34 @@ impl SniperAgentState {
 
 
     #[action]
-    fn set_buy_delay_timer(&mut self) {
+    async fn set_buy_delay_timer(&mut self) {
+        match self.context.rpc_pool.get_pool_details(&self.pool.id).await {
+            Ok(pool_info) => {
+                self.context
+                    .cache
+                    .target_pools
+                    .write()
+                    .await
+                    .insert(self.pool.id, pool_info);
+            }
+            Err(e) => {
+                error!("Error getting pool details: {:?}", e);
+            }
+        }
+
+        match self.context.rpc_pool.get_pool_price(&self.pool.id).await {
+            Ok(pool_price) => {
+                self.context
+                    .cache
+                    .target_pools_prices
+                    .lock()
+                    .await
+                    .insert(self.pool.id, pool_price);
+            }
+            Err(e) => {
+                error!("Error getting pool price: {:?}", e);
+            }
+        }
         self.buy_delay_timer = Instant::now();
         debug!("Token `{:?}` setting buy delay timer {} ms", self.pool.base_mint, self.sniping_strategy_instance.buy_delay_ms);
     }
@@ -251,7 +278,7 @@ impl SniperAgentState {
             SolanaStrategyEvent::Original(BotEvent::BlockchainEvent(BlockchainEvent::RaydiumSwapEvent(RaydiumSwapEvent { price_update, .. }))) => {
                 if price_update.pool == self.pool.id {
                     let relative_price_drop_per_cent = (100.0 * (self.deploy_price.price - price_update.price)) / self.deploy_price.price;
-                    debug!("Price change: {:.5}% from deployment price", -relative_price_drop_per_cent);
+                    debug!("Price change(buy): {:.5}% from deployment price", -relative_price_drop_per_cent);
                     if relative_price_drop_per_cent > self.sniping_strategy_instance.skip_if_price_drops_percent {
                         info!("Token `{:?}` price dropped by {:.5}%, skipping", self.pool.base_mint, relative_price_drop_per_cent);
                         return Transition(State::done());
@@ -262,6 +289,51 @@ impl SniperAgentState {
         }
         Super
     }
+
+
+    // #[state(entry_action = "set_buy_delay_timer")]
+    // async fn waiting_to_buy(&self, event: &SolanaStrategyEvent) -> Response<State> {
+    //     let elapsed_ms = self.buy_delay_timer.elapsed().as_millis();
+    //     debug!("Token `{:?}` waiting to buy, elapsed: {} ms", self.pool.base_mint, elapsed_ms);
+
+    //     // Handle zero buy delay efficiently
+    //     if self.sniping_strategy_instance.buy_delay_ms == 0 {
+    //         debug!("Token `{:?}` ready to buy (zero delay)", self.pool.base_mint);
+    //         return Transition(State::buying(
+    //             Amount::Exact(sol_to_lamports(self.sniping_strategy_instance.size_sol)),
+    //             0,
+    //         ));
+    //     }
+
+    //     // Check for price drop *before* checking elapsed time.  This is more efficient.
+    //     if let SolanaStrategyEvent::Original(BotEvent::BlockchainEvent(BlockchainEvent::RaydiumHeartbeatPriceUpdate(price_update))) |
+    //     SolanaStrategyEvent::Original(BotEvent::BlockchainEvent(BlockchainEvent::RaydiumSwapEvent(RaydiumSwapEvent { price_update, .. }))) = event {
+    //         debug!("Token `{:?}` checking price drop", self.pool.base_mint);
+    //         if price_update.pool == self.pool.id {
+    //             let price_change = self.deploy_price.price - price_update.price;
+    //             let relative_price_drop_per_cent = (100.0 * price_change) / self.deploy_price.price;
+    //             debug!("Price change(buy): {:.5}% from deployment price", -relative_price_drop_per_cent);
+
+    //             // Use a more robust check for price drop. Avoid division by zero.
+    //             if self.deploy_price.price > 0.0 && relative_price_drop_per_cent > self.sniping_strategy_instance.skip_if_price_drops_percent {
+    //                 info!("Token `{:?}` price dropped by {:.5}%, skipping", self.pool.base_mint, relative_price_drop_per_cent);
+    //                 return Transition(State::done());
+    //             }
+    //         }
+    //     }
+
+    //     // Check elapsed time only if no price drop was detected.
+    //     if elapsed_ms > self.sniping_strategy_instance.buy_delay_ms as u128 {
+    //         debug!("Token `{:?}` ready to buy (delay elapsed)", self.pool.base_mint);
+    //         return Transition(State::buying(
+    //             Amount::Exact(sol_to_lamports(self.sniping_strategy_instance.size_sol)),
+    //             0,
+    //         ));
+    //     }
+
+    //     Super // Continue waiting
+    // }
+
     // buying for all balance
     #[action]
     async fn buy(&mut self, amt: &Amount, retry: &i64) {
@@ -337,7 +409,8 @@ impl SniperAgentState {
             SolanaStrategyEvent::Original(BotEvent::BlockchainEvent(BlockchainEvent::RaydiumSwapEvent(RaydiumSwapEvent { price_update, .. }))) => {
                 if price_update.pool == self.pool.id {
                     let relative_price_change_per_cent = (100.0 * (price_update.price - self.buy_price.price)) / self.buy_price.price;
-                    debug!("Price change: {:.5}% from buy price", relative_price_change_per_cent);
+                    debug!("Token(sell) `{:?}` price change: {:.5}%, event: {:?}", self.pool.base_mint, relative_price_change_per_cent, event);
+                    debug!("Price change(sell): {:.5}% from buy price", relative_price_change_per_cent);
                     if price_update.price < self.buy_price.price * self.sniping_strategy_instance.stop_loss_percent_move_down {
                         info!("{:?}, selling the token at SL, {}", self.pool.id, price_update.price);
                         return Transition(State::selling(Amount::Max, 0));

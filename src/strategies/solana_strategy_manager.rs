@@ -192,9 +192,11 @@ impl StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> for SolanaStrategyManag
             )
                 .await?;
         }
+
         let mut cached_strategies_ids = vec![];
         //todo add self destruct if a strategy is in done or error state
 
+        
         loop {
             tokio::select! {
                 _ = rx.changed() => {
@@ -241,6 +243,7 @@ impl StrategyManager<BotEvent, Arc<Mutex<SolanaAction>>> for SolanaStrategyManag
                     self.strategy_notify.send(()).ok();
                 }
             }
+
         }
     }
 }

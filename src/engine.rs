@@ -93,6 +93,7 @@ where
                 info!("starting executor... ");
                 loop {
                     if let Ok(action) = receiver.recv().await {
+                        info!("executor received action: {:?}", action);
                         let event_sender = event_sender.clone();
                         let executor = executor.clone();
                         tokio::spawn(async move {
@@ -124,9 +125,11 @@ where
                 error!("Strategy manager error: {:?}", e);
             }
         });
-        self.strategy_manager.sync_state().await?;
+        // self.strategy_manager.sync_state().await?;
+
 
         for mut aggregator in self.aggregators {
+
             let mut event_receiver = event_sender.subscribe();
             let event_sender = event_sender.clone();
             set.spawn(async move {
@@ -146,6 +149,7 @@ where
                 }
             });
         }
+
 
         // Spawn collectors in separate threads.
         for collector in self.collectors {

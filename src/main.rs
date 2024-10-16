@@ -118,6 +118,7 @@ async fn main() -> Result<()> {
 
     /// Add startup strategies here
     if let Some(sniping_strategy_config) = settings.get_sniping_strategy_config() {
+        info!("Starting sniper strategy: {:?}", sniping_strategy_config);
         let sniping_strategy_instance = storage::persistent::save_new_sniping_strategy_to_db(
             context.db_pool.clone(), NewSnipingStrategyInstance::try_from(&sniping_strategy_config).unwrap(),
         ).await?;
