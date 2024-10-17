@@ -164,40 +164,41 @@ impl Executor<Arc<Mutex<SolanaAction>>, BotEvent> for SolanaExecutor {
                         .blockhash,
                 )?;
                 tx.message.recent_blockhash = recent_blockhash;
-                // simulate
-                if self
-                    .context
-                    .settings
-                    .read()
-                    .await
-                    .executor
-                    .simulate_execution
-                {
-                    let mut retries = SIMULATION_RETRIES;
-                    loop {
-                        match self.context.rpc_pool.simulate_tx(&tx).await {
-                            Ok(ex) => {
-                                debug!("Simulation result: {:#?}", ex);
-                                break;
-                            }
-                            Err(err) => {
-                                error!("Simulation failed: {:?}", err);
-                                retries -= 1;
-                                if retries == 0 {
-                                    return Ok(BotEvent::ExecutionResult(
-                                        action.lock().await.uuid,
-                                        Arc::clone(&action),
-                                        ExecutionResult::ExecutionError(
-                                            ExecutionError::SimulationFailed(err.to_string()),
-                                        ),
-                                    ));
-                                } else {
-                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                }
-                            }
-                        };
-                    }
-                }
+                
+                // // simulate
+                // if self
+                //     .context
+                //     .settings
+                //     .read()
+                //     .await
+                //     .executor
+                //     .simulate_execution
+                // {
+                //     let mut retries = SIMULATION_RETRIES;
+                //     loop {
+                //         match self.context.rpc_pool.simulate_tx(&tx).await {
+                //             Ok(ex) => {
+                //                 debug!("Simulation result: {:#?}", ex);
+                //                 break;
+                //             }
+                //             Err(err) => {
+                //                 error!("Simulation failed: {:?}", err);
+                //                 retries -= 1;
+                //                 if retries == 0 {
+                //                     return Ok(BotEvent::ExecutionResult(
+                //                         action.lock().await.uuid,
+                //                         Arc::clone(&action),
+                //                         ExecutionResult::ExecutionError(
+                //                             ExecutionError::SimulationFailed(err.to_string()),
+                //                         ),
+                //                     ));
+                //                 } else {
+                //                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                //                 }
+                //             }
+                //         };
+                //     }
+                // }
 
                 // execute
                 let signature = execute_tx(
