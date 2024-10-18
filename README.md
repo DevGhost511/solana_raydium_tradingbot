@@ -35,7 +35,7 @@ requirements:
 - Install diesel cli `curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash`
 `cargo install diesel_cli --no-default-features --features postgres`
 - Run diesel migrations to populate the database schema `diesel setup`, then can be repeated with `diesel migration redo`
-- Clone the repo `git clone git@github.com:crypt0grapher/foxfire-sniper.git`
+- Clone the repo `git clone git@github.com:unicrypto11/rust-tradingbot.git`
 - `cd foxfire-sniper`
 - `cargo build --release`
 
