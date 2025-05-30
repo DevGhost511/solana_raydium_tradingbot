@@ -30,8 +30,7 @@ impl HeartbeatCollector {
 impl Collector<BotEvent> for HeartbeatCollector {
     async fn get_event_stream(&self) -> anyhow::Result<EventStream<'_, BotEvent>> {
         info!("Initializing HeartbeatCollector event stream");
-        let (tx, rx) = mpsc::unbounded_channel();
-        let delay = self.delay_ms;
+       
         let mut interval = tokio::time::interval(Duration::from_millis(delay));
         tokio::spawn(async move {
             loop {
